@@ -108,11 +108,11 @@ function ensureDialogStyle() {
   style.textContent = `
   .iig-xv-backdrop{position:fixed;inset:0;z-index:100000;background:#000a;display:grid;place-items:center;padding:16px}
   .iig-xv-card{width:min(620px,96vw);max-height:90vh;overflow:auto;background:var(--SmartThemeBlurTintColor,#181818);color:var(--SmartThemeBodyColor,#eee);border:1px solid var(--SmartThemeBorderColor,#666);border-radius:18px;padding:18px;box-shadow:0 18px 60px #0009}
-  .iig-xv-card h3{margin:0 0 6px}.iig-xv-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.iig-xv-card label{display:grid;gap:5px;margin:10px 0}.iig-xv-card textarea{min-height:120px;resize:vertical}.iig-xv-card select,.iig-xv-card textarea{width:100%}.iig-xv-cost{padding:10px 12px;border:1px solid #ffffff24;border-radius:12px;margin:10px 0}.iig-xv-actions{display:flex;gap:10px;justify-content:flex-end;margin-top:14px}.iig-xv-status{min-height:1.4em;opacity:.85}.iig-xv-card .iig-xv-audio{display:flex;align-items:center;gap:8px}.iig-xv-card .iig-xv-audio input{width:auto}@media(max-width:520px){.iig-xv-grid{grid-template-columns:1fr}}
+  .iig-xv-card h3{margin:0 0 6px}.iig-xv-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.iig-xv-card label{display:grid;gap:5px;margin:10px 0}.iig-xv-prompt-wrap{padding:10px 12px;border:1px solid color-mix(in srgb,var(--SmartThemeBorderColor,#777) 70%,transparent);border-radius:13px;background:rgba(0,0,0,.16)}.iig-xv-prompt-title{font-weight:700}.iig-xv-prompt-help{font-size:.82em;opacity:.72}.iig-xv-card textarea{min-height:150px;resize:vertical;background:rgba(0,0,0,.28)!important;color:var(--SmartThemeBodyColor,#eee)!important}.iig-xv-card select,.iig-xv-card textarea{width:100%}.iig-xv-cost{padding:10px 12px;border:1px solid #ffffff24;border-radius:12px;margin:10px 0}.iig-xv-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:14px}.iig-xv-actions button{width:auto!important;min-width:0!important;padding:8px 12px!important;border:1px solid rgba(255,255,255,.25)!important;border-radius:10px!important;background:rgba(18,18,22,.92)!important;color:#fff!important}.iig-xv-actions .iig-xv-go{background:rgba(48,82,130,.95)!important}.iig-xv-status{min-height:1.4em;opacity:.85}.iig-xv-card .iig-xv-audio{display:flex;align-items:center;gap:8px}.iig-xv-card .iig-xv-audio input{width:auto}@media(max-width:520px){.iig-xv-grid{grid-template-columns:1fr}.iig-xv-card{padding:14px}.iig-xv-actions{position:sticky;bottom:-14px;padding:10px 0 14px;background:linear-gradient(transparent,var(--SmartThemeBlurTintColor,#181818) 28%)}}
   `;
   document.head.appendChild(style);
 }
-export function askXaiVideoOptions() {
+export function askXaiVideoOptions(initialPrompt = '') {
   ensureDialogStyle();
   return new Promise((resolve) => {
     const wrap = document.createElement('div');
@@ -120,7 +120,7 @@ export function askXaiVideoOptions() {
     wrap.innerHTML = `<div class="iig-xv-card" role="dialog" aria-modal="true">
       <h3>🎬 Оживить изображение через Grok</h3>
       <div style="opacity:.75">Исходная картинка останется на месте.</div>
-      <label>Что должно происходить<textarea class="iig-xv-prompt" placeholder="Например: волосы слегка колышутся, персонажи моргают и смотрят друг на друга, медленный наезд камеры…"></textarea></label>
+      <label class="iig-xv-prompt-wrap"><span class="iig-xv-prompt-title">✍️ Твой промпт движения</span><span class="iig-xv-prompt-help">Пиши здесь именно то, что должно произойти в видео. Текст можно полностью заменить.</span><textarea class="iig-xv-prompt" placeholder="Например: девушка медленно поднимает взгляд, парень наклоняется ближе, волосы слегка движутся, камера плавно приближается…"></textarea></label>
       <div class="iig-xv-grid">
         <label>Модель<select class="iig-xv-model"><option value="grok-imagine-video">Grok Video · экономный</option><option value="grok-imagine-video-1.5">Grok Video 1.5 · качество</option></select></label>
         <label>Длительность<select class="iig-xv-duration"><option>3</option><option selected>5</option><option>8</option><option>10</option><option>15</option></select></label>
@@ -131,7 +131,16 @@ export function askXaiVideoOptions() {
       <div class="iig-xv-actions"><button type="button" class="iig-xv-cancel">Отмена</button><button type="button" class="iig-xv-go">🎬 Создать видео</button></div>
     </div>`;
     document.body.appendChild(wrap);
+    const promptBox = wrap.querySelector('.iig-xv-prompt');
+    const rememberedPrompt = localStorage.getItem('iig_xai_video_prompt') || '';
+    promptBox.value = String(initialPrompt || rememberedPrompt || '');
+    let remembered = {};
+    try { remembered = JSON.parse(localStorage.getItem('iig_xai_video_options') || '{}'); } catch {}
     const model = wrap.querySelector('.iig-xv-model'), duration = wrap.querySelector('.iig-xv-duration'), resolution = wrap.querySelector('.iig-xv-resolution'), cost = wrap.querySelector('.iig-xv-cost');
+    if ([...model.options].some(o => o.value === remembered.model)) model.value = remembered.model;
+    if ([...duration.options].some(o => o.value === String(remembered.duration))) duration.value = String(remembered.duration);
+    if ([...resolution.options].some(o => o.value === remembered.resolution)) resolution.value = remembered.resolution;
+    if (typeof remembered.generateAudio === 'boolean') wrap.querySelector('.iig-xv-audio-input').checked = remembered.generateAudio;
     const update = () => {
       const isClassic = model.value === 'grok-imagine-video';
       const opt1080 = resolution.querySelector('option[value="1080p"]');
@@ -144,15 +153,22 @@ export function askXaiVideoOptions() {
     const finish = (value) => { wrap.remove(); resolve(value); };
     wrap.querySelector('.iig-xv-cancel').onclick = () => finish(null);
     wrap.addEventListener('click', e => { if (e.target === wrap) finish(null); });
-    wrap.querySelector('.iig-xv-go').onclick = () => finish({
-      prompt: wrap.querySelector('.iig-xv-prompt').value,
-      model:model.value, duration:Number(duration.value), resolution:resolution.value,
-      generateAudio: wrap.querySelector('.iig-xv-audio-input').checked,
-    });
+    wrap.querySelector('.iig-xv-go').onclick = () => {
+      const value = {
+        prompt: promptBox.value.trim(),
+        model:model.value, duration:Number(duration.value), resolution:resolution.value,
+        generateAudio: wrap.querySelector('.iig-xv-audio-input').checked,
+      };
+      localStorage.setItem('iig_xai_video_prompt', value.prompt);
+      localStorage.setItem('iig_xai_video_options', JSON.stringify({
+        model:value.model, duration:value.duration, resolution:value.resolution, generateAudio:value.generateAudio,
+      }));
+      finish(value);
+    };
   });
 }
-export async function animateImageInteractive(imageSrc, onStatus = () => {}) {
-  const options = await askXaiVideoOptions();
+export async function animateImageInteractive(imageSrc, onStatus = () => {}, initialPrompt = '') {
+  const options = await askXaiVideoOptions(initialPrompt);
   if (!options) return null;
   return generateXaiVideoFromImage(imageSrc, options, onStatus);
 }
