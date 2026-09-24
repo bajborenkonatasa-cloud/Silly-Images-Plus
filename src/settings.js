@@ -293,6 +293,11 @@ export const defaultSettings = Object.freeze({
     // Остальные провайдеры хранят свои ключи в apiKeys[apiType]; активный
     // из них дублируется в apiKey (его и читают провайдеры).
     novelaiApiKey: '',
+    // NovelAI V4.5 Precise Reference defaults. Individual Additional References
+    // may override these values in the reference editor.
+    novelaiPreciseReferenceMode: 'character',
+    novelaiPreciseReferenceStrength: 0.65,
+    novelaiPreciseReferenceFidelity: 0.75,
     apiKeys: {},
     keyIsolationMigrated: false,
     model: '',
@@ -1018,6 +1023,9 @@ function normalizeReferenceEntry(raw) {
         priority: Number.isFinite(priorityRaw) ? priorityRaw : 0,
         useRegex: raw?.useRegex === true,
         secondaryKeys: normalizeSecondaryKeysString(raw?.secondaryKeys),
+        novelaiMode: ['character', 'style', 'character&style'].includes(raw?.novelaiMode) ? raw.novelaiMode : 'character',
+        novelaiStrength: Number.isFinite(Number(raw?.novelaiStrength)) ? Math.max(0, Math.min(1, Number(raw.novelaiStrength))) : 0.65,
+        novelaiFidelity: Number.isFinite(Number(raw?.novelaiFidelity)) ? Math.max(0, Math.min(1, Number(raw.novelaiFidelity))) : 0.75,
     };
 }
 

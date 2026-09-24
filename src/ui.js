@@ -225,6 +225,18 @@ function buildApiSettingsSectionHtml(settings = getSettings()) {
 
             <p id="iig_naistera_hint" class="hint ${settings.apiType === 'naistera' ? '' : 'iig-hidden'}">${t`For Naistera: paste the token from the Telegram bot. Available models are loaded from the API.`}</p>
             <p id="iig_novelai_hint" class="hint ${settings.apiType === 'novelai' ? '' : 'iig-hidden'}">${t`Calls NovelAI's official image API directly from your browser using the API key above — separate from SillyTavern's own built-in NovelAI connection, and from any other provider's key on this page. Get your key on novelai.net → Settings → Account → Get Persistent API Token.`}</p>
+            <div id="iig_novelai_precise_panel" class="iig-novelai-precise-panel ${settings.apiType === 'novelai' ? '' : 'iig-hidden'}">
+                <div class="iig-novelai-precise-title"><strong>🌙 Precise Reference</strong><span>V4.5 only</span></div>
+                <p class="hint">Additional References can each choose Character, Style, or Character + Style and their own Strength/Fidelity. Character/Persona library references use the defaults below.</p>
+                <div class="flex-row"><label>Default type</label><select id="iig_novelai_precise_mode" class="flex1">
+                    <option value="character" ${(settings.novelaiPreciseReferenceMode || 'character') === 'character' ? 'selected' : ''}>👤 Character</option>
+                    <option value="style" ${settings.novelaiPreciseReferenceMode === 'style' ? 'selected' : ''}>🎨 Style</option>
+                    <option value="character&style" ${settings.novelaiPreciseReferenceMode === 'character&style' ? 'selected' : ''}>👤🎨 Character + Style</option>
+                </select><div></div></div>
+                <div class="flex-row"><label>Default Strength</label><input id="iig_novelai_precise_strength" class="flex1" type="range" min="0" max="1" step="0.05" value="${Number.isFinite(Number(settings.novelaiPreciseReferenceStrength)) ? Number(settings.novelaiPreciseReferenceStrength) : 0.65}"><span id="iig_novelai_precise_strength_value">${Number.isFinite(Number(settings.novelaiPreciseReferenceStrength)) ? Number(settings.novelaiPreciseReferenceStrength).toFixed(2) : '0.65'}</span></div>
+                <div class="flex-row"><label>Default Fidelity</label><input id="iig_novelai_precise_fidelity" class="flex1" type="range" min="0" max="1" step="0.05" value="${Number.isFinite(Number(settings.novelaiPreciseReferenceFidelity)) ? Number(settings.novelaiPreciseReferenceFidelity) : 0.75}"><span id="iig_novelai_precise_fidelity_value">${Number.isFinite(Number(settings.novelaiPreciseReferenceFidelity)) ? Number(settings.novelaiPreciseReferenceFidelity).toFixed(2) : '0.75'}</span></div>
+                <div id="iig_novelai_precise_status" class="hint">Select a V4.5 model to use Precise Reference.</div>
+            </div>
 
             <div class="flex-row ${settings.apiType === 'naistera' ? 'iig-hidden' : ''}" id="iig_model_row">
                 <label for="iig_model_select">${t`Model`}</label>
@@ -1358,6 +1370,23 @@ function bindApiSectionEvents(settings, updateVisibility) {
         }
     });
 
+    document.getElementById('iig_novelai_precise_mode')?.addEventListener('change', (e) => {
+        settings.novelaiPreciseReferenceMode = ['character', 'style', 'character&style'].includes(e.target.value) ? e.target.value : 'character';
+        saveSettings();
+    });
+    document.getElementById('iig_novelai_precise_strength')?.addEventListener('input', (e) => {
+        settings.novelaiPreciseReferenceStrength = Number(e.target.value);
+        const out = document.getElementById('iig_novelai_precise_strength_value');
+        if (out) out.textContent = Number(e.target.value).toFixed(2);
+        saveSettings();
+    });
+    document.getElementById('iig_novelai_precise_fidelity')?.addEventListener('input', (e) => {
+        settings.novelaiPreciseReferenceFidelity = Number(e.target.value);
+        const out = document.getElementById('iig_novelai_precise_fidelity_value');
+        if (out) out.textContent = Number(e.target.value).toFixed(2);
+        saveSettings();
+    });
+
     document.getElementById('iig_api_key')?.addEventListener('change', () => {
         if (settings.apiType === 'naistera') {
             reloadModelList({ announce: false }).catch(() => { /* handled by fetchModels */ });
@@ -2290,7 +2319,9 @@ function bindAdditionalReferencesEvents(settings) {
         const isGroupField = target.classList.contains('iig-additional-ref-group');
         const isSecondaryField = target.classList.contains('iig-additional-ref-secondary');
         const isPriorityField = target.classList.contains('iig-additional-ref-priority');
-        if (!isNameField && !isDescriptionField && !isGroupField && !isSecondaryField && !isPriorityField) {
+        const isNovelAiStrength = target.classList.contains('iig-additional-ref-novelai-strength');
+        const isNovelAiFidelity = target.classList.contains('iig-additional-ref-novelai-fidelity');
+        if (!isNameField && !isDescriptionField && !isGroupField && !isSecondaryField && !isPriorityField && !isNovelAiStrength && !isNovelAiFidelity) {
             return;
         }
 
@@ -2309,6 +2340,16 @@ function bindAdditionalReferencesEvents(settings) {
         if (isPriorityField) {
             const parsed = Number.parseInt(target.value, 10);
             refs[index].priority = Number.isFinite(parsed) ? parsed : 0;
+        }
+        if (isNovelAiStrength) {
+            refs[index].novelaiStrength = Math.max(0, Math.min(1, Number(target.value)));
+            const out = target.closest('.iig-novelai-ref-box')?.querySelector('.iig-novelai-strength-value');
+            if (out) out.textContent = refs[index].novelaiStrength.toFixed(2);
+        }
+        if (isNovelAiFidelity) {
+            refs[index].novelaiFidelity = Math.max(0, Math.min(1, Number(target.value)));
+            const out = target.closest('.iig-novelai-ref-box')?.querySelector('.iig-novelai-fidelity-value');
+            if (out) out.textContent = refs[index].novelaiFidelity.toFixed(2);
         }
         saveSettings();
         updateAdditionalReferenceListPreview(refs[index]);
@@ -2345,6 +2386,15 @@ function bindAdditionalReferencesEvents(settings) {
             refs[index].matchMode = target.value === 'always' ? 'always' : 'match';
             saveSettings();
             refreshAdditionalReferencesList();
+            return;
+        }
+
+        if (target instanceof HTMLSelectElement && target.classList.contains('iig-additional-ref-novelai-mode')) {
+            const index = getAdditionalReferenceIndex(target);
+            const refs = getActiveLorebookReferences(settings);
+            if (index < 0 || !refs[index]) return;
+            refs[index].novelaiMode = ['character', 'style', 'character&style'].includes(target.value) ? target.value : 'character';
+            saveSettings();
             return;
         }
 
@@ -2567,6 +2617,7 @@ function buildUpdateVisibility(settings) {
         document.getElementById('iig_endpoint_row')?.classList.toggle('iig-hidden', isNovelAi);
         document.getElementById('iig_raw_endpoint_row')?.classList.toggle('iig-hidden', isNovelAi);
         document.getElementById('iig_novelai_hint')?.classList.toggle('iig-hidden', !isNovelAi);
+        document.getElementById('iig_novelai_precise_panel')?.classList.toggle('iig-hidden', !isNovelAi);
         document.getElementById('iig_image_context_section')?.classList.toggle('iig-hidden', !refsSupported);
         document.getElementById('iig_image_context_count_row')?.classList.toggle('iig-hidden', !(refsSupported && settings.imageContextEnabled));
         document.getElementById('iig_additional_refs_section')?.classList.toggle('iig-hidden', !refsSupported);

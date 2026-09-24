@@ -132,12 +132,21 @@ export function userAvatarUrl(avatarFile) {
     return value ? `/User Avatars/${encodeURIComponent(value)}` : '';
 }
 
-export function makeReferenceObject(image, description = '', source = '') {
-    return {
+export function makeReferenceObject(image, description = '', source = '', meta = null) {
+    const result = {
         image,
         description: normalizeReferenceDescription(description),
         source: String(source || '').trim(),
     };
+    if (meta && typeof meta === 'object') {
+        result.novelaiMode = ['character', 'style', 'character&style'].includes(meta.novelaiMode) ? meta.novelaiMode : undefined;
+        const strength = Number(meta.novelaiStrength);
+        const fidelity = Number(meta.novelaiFidelity);
+        if (Number.isFinite(strength)) result.novelaiStrength = Math.max(-1, Math.min(1, strength));
+        if (Number.isFinite(fidelity)) result.novelaiFidelity = Math.max(-1, Math.min(1, fidelity));
+        result.referenceName = String(meta.name || '').trim();
+    }
+    return result;
 }
 
 export function getReferenceImage(ref) {
@@ -827,6 +836,26 @@ export function buildAdditionalReferenceRowsHtml(settings = getSettings(), viewS
                             <option value="always" ${selectedRef.matchMode === 'always' ? 'selected' : ''}>${t`Always`}</option>
                         </select>
                     </label>
+                    <div class="iig-novelai-ref-box">
+                        <strong>🌙 NovelAI V4.5 · Precise Reference</strong>
+                        <label>
+                            <span>Type</span>
+                            <select class="iig-additional-ref-novelai-mode">
+                                <option value="character" ${(selectedRef.novelaiMode || 'character') === 'character' ? 'selected' : ''}>👤 Character</option>
+                                <option value="style" ${selectedRef.novelaiMode === 'style' ? 'selected' : ''}>🎨 Style</option>
+                                <option value="character&style" ${selectedRef.novelaiMode === 'character&style' ? 'selected' : ''}>👤🎨 Character + Style</option>
+                            </select>
+                        </label>
+                        <label>
+                            <span>Strength <b class="iig-novelai-strength-value">${Number.isFinite(Number(selectedRef.novelaiStrength)) ? Number(selectedRef.novelaiStrength).toFixed(2) : '0.65'}</b></span>
+                            <input type="range" class="iig-additional-ref-novelai-strength" min="0" max="1" step="0.05" value="${Number.isFinite(Number(selectedRef.novelaiStrength)) ? Number(selectedRef.novelaiStrength) : 0.65}">
+                        </label>
+                        <label>
+                            <span>Fidelity <b class="iig-novelai-fidelity-value">${Number.isFinite(Number(selectedRef.novelaiFidelity)) ? Number(selectedRef.novelaiFidelity).toFixed(2) : '0.75'}</b></span>
+                            <input type="range" class="iig-additional-ref-novelai-fidelity" min="0" max="1" step="0.05" value="${Number.isFinite(Number(selectedRef.novelaiFidelity)) ? Number(selectedRef.novelaiFidelity) : 0.75}">
+                        </label>
+                        <small>Used only by NovelAI V4.5 Native. Other providers ignore these fields.</small>
+                    </div>
                 </div>
             </div>
 
@@ -1202,6 +1231,9 @@ export function buildLorebookExportJson(lorebook) {
             priority: Number.isFinite(ref?.priority) ? ref.priority : 0,
             useRegex: ref?.useRegex === true,
             secondaryKeys: String(ref?.secondaryKeys || ''),
+            novelaiMode: ['character', 'style', 'character&style'].includes(ref?.novelaiMode) ? ref.novelaiMode : 'character',
+            novelaiStrength: Number.isFinite(Number(ref?.novelaiStrength)) ? Number(ref.novelaiStrength) : 0.65,
+            novelaiFidelity: Number.isFinite(Number(ref?.novelaiFidelity)) ? Number(ref.novelaiFidelity) : 0.75,
             imageUrl: '',
         })),
     };
@@ -1285,6 +1317,9 @@ export async function importLorebookFromPayload(payload, meta = {}) {
             priority: Number.parseInt(String(raw?.priority ?? 0), 10) || 0,
             useRegex: raw?.useRegex === true,
             secondaryKeys: String(raw?.secondaryKeys || ''),
+            novelaiMode: ['character', 'style', 'character&style'].includes(raw?.novelaiMode) ? raw.novelaiMode : 'character',
+            novelaiStrength: Number.isFinite(Number(raw?.novelaiStrength)) ? Number(raw.novelaiStrength) : 0.65,
+            novelaiFidelity: Number.isFinite(Number(raw?.novelaiFidelity)) ? Number(raw.novelaiFidelity) : 0.75,
         };
 
         const imageUrl = String(raw?.imageUrl || '').trim();

@@ -85,6 +85,9 @@ export function getActiveProviderMaxReferences(settings = getSettings()) {
         // совпадающий с лимитом самого хранилища лорбука.
         return MAX_ADDITIONAL_REFERENCES;
     }
+    if (apiType === 'novelai') {
+        return String(settings.model || '').startsWith('nai-diffusion-4-5') ? MAX_GENERATION_REFERENCE_IMAGES : 0;
+    }
     if (apiType === 'a1111') {
         // txt2img — референсы не поддерживаются.
         return 0;
@@ -2549,6 +2552,10 @@ export class NovelAiProvider extends Provider {
         const isV45 = model.startsWith('nai-diffusion-4-5');
         if (isV45 && Array.isArray(references) && references.length > 0) {
             const directorImages = [];
+            const directorMeta = [];
+            const defaultMode = ['character', 'style', 'character&style'].includes(settings.novelaiPreciseReferenceMode) ? settings.novelaiPreciseReferenceMode : 'character';
+            const defaultStrength = Number.isFinite(Number(settings.novelaiPreciseReferenceStrength)) ? Math.max(0, Math.min(1, Number(settings.novelaiPreciseReferenceStrength))) : 0.65;
+            const defaultFidelity = Number.isFinite(Number(settings.novelaiPreciseReferenceFidelity)) ? Math.max(0, Math.min(1, Number(settings.novelaiPreciseReferenceFidelity))) : 0.75;
             for (const ref of references.slice(0, this.capabilities.referencesMaxCount)) {
                 let image = getReferenceImage(ref);
                 if (!image) continue;
@@ -2562,7 +2569,11 @@ export class NovelAiProvider extends Provider {
                 try {
                     const prepared = await prepareNovelAiPreciseReference(image);
                     directorImages.push(prepared.base64);
-                    iigLog('INFO', `NovelAI Precise Reference prepared: ${prepared.width}x${prepared.height}`);
+                    const mode = ['character', 'style', 'character&style'].includes(ref?.novelaiMode) ? ref.novelaiMode : defaultMode;
+                    const strength = Number.isFinite(Number(ref?.novelaiStrength)) ? Math.max(0, Math.min(1, Number(ref.novelaiStrength))) : defaultStrength;
+                    const fidelity = Number.isFinite(Number(ref?.novelaiFidelity)) ? Math.max(0, Math.min(1, Number(ref.novelaiFidelity))) : defaultFidelity;
+                    directorMeta.push({ mode, strength, fidelity, name: String(ref?.referenceName || ref?.source || 'reference') });
+                    iigLog('INFO', `NovelAI Precise Reference prepared: ${prepared.width}x${prepared.height} type=${mode} strength=${strength.toFixed(2)} fidelity=${fidelity.toFixed(2)}`);
                 } catch (error) {
                     throw new ProviderError({
                         message: `Could not prepare NovelAI Precise Reference: ${error?.message || error}`,
@@ -2576,13 +2587,17 @@ export class NovelAiProvider extends Provider {
 
             if (directorImages.length > 0) {
                 parameters.director_reference_images = directorImages;
-                parameters.director_reference_descriptions = directorImages.map(() => ({
-                    caption: { base_caption: 'character', char_captions: [] },
+                parameters.director_reference_descriptions = directorMeta.map((meta) => ({
+                    caption: { base_caption: meta.mode, char_captions: [] },
+                    legacy_uc: false,
                 }));
-                parameters.director_reference_information_extracted = directorImages.map(() => 1);
-                parameters.director_reference_strength_values = directorImages.map(() => 0.65);
-                parameters.director_reference_secondary_strength_values = directorImages.map(() => 0.75);
-                iigLog('INFO', `NovelAI Precise Reference: ${directorImages.length} character ref(s), strength=0.65 fidelity=0.75`);
+                parameters.director_reference_information_extracted = directorMeta.map(() => 1);
+                parameters.director_reference_strength_values = directorMeta.map((meta) => meta.strength);
+                // NovelAI's web Fidelity slider is inverted on the wire:
+                // UI Fidelity 1.00 => secondary strength 0.00.
+                parameters.director_reference_secondary_strength_values = directorMeta.map((meta) => 1 - meta.fidelity);
+                const summary = directorMeta.map((meta, i) => `#${i + 1} ${meta.name}:${meta.mode} S=${meta.strength.toFixed(2)} F=${meta.fidelity.toFixed(2)}`).join(' | ');
+                iigLog('INFO', `NovelAI Precise Reference SENT (${directorImages.length}): ${summary}`);
             }
         }
 
