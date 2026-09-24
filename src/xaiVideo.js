@@ -156,3 +156,16 @@ export async function animateImageInteractive(imageSrc, onStatus = () => {}) {
   if (!options) return null;
   return generateXaiVideoFromImage(imageSrc, options, onStatus);
 }
+
+
+/**
+ * Stable cross-extension bridge for Scene Blocks Lite.
+ * Scene Blocks should prefer this global bridge instead of assuming a folder name.
+ */
+if (typeof globalThis !== 'undefined') {
+  globalThis.SillyImagesPlusVideo = {
+    animateImageInteractive,
+    generateXaiVideoFromImage,
+    estimateXaiVideoCost,
+  };
+}
