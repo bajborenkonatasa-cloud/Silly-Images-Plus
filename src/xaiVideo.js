@@ -106,19 +106,20 @@ function ensureDialogStyle() {
   const style = document.createElement('style');
   style.id = 'iig-xai-video-style';
   style.textContent = `
-  .iig-xv-backdrop{position:fixed;inset:0;z-index:100000;background:#000a;display:grid;justify-items:center;align-items:start;padding:16px;overflow-y:auto;overscroll-behavior:contain}
-  .iig-xv-card{width:min(620px,96vw);max-height:none;overflow:visible;margin:8px 0 24px;background:var(--SmartThemeBlurTintColor,#181818);color:var(--SmartThemeBodyColor,#eee);border:1px solid var(--SmartThemeBorderColor,#666);border-radius:18px;padding:18px;box-shadow:0 18px 60px #0009}
-  .iig-xv-card h3{margin:0 0 6px}.iig-xv-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.iig-xv-card label{display:grid;gap:5px;margin:10px 0}.iig-xv-prompt-wrap{padding:10px 12px;border:1px solid color-mix(in srgb,var(--SmartThemeBorderColor,#777) 70%,transparent);border-radius:13px;background:rgba(0,0,0,.16)}.iig-xv-prompt-title{font-weight:700}.iig-xv-prompt-help{font-size:.82em;opacity:.72}.iig-xv-card textarea{min-height:92px;resize:vertical;background:rgba(0,0,0,.28)!important;color:var(--SmartThemeBodyColor,#eee)!important}.iig-xv-card select,.iig-xv-card textarea{width:100%}.iig-xv-cost{padding:10px 12px;border:1px solid #ffffff24;border-radius:12px;margin:10px 0}.iig-xv-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:14px}.iig-xv-actions button{width:auto!important;min-width:0!important;padding:8px 12px!important;border:1px solid rgba(255,255,255,.25)!important;border-radius:10px!important;background:rgba(18,18,22,.92)!important;color:#fff!important}.iig-xv-actions .iig-xv-go{background:rgba(48,82,130,.95)!important}.iig-xv-status{min-height:1.4em;opacity:.85}.iig-xv-card .iig-xv-audio{display:flex;align-items:center;gap:8px}.iig-xv-card .iig-xv-audio input{width:auto}@media(max-width:520px){.iig-xv-grid{grid-template-columns:1fr}.iig-xv-card{padding:14px}.iig-xv-card textarea{min-height:88px}}
+  .iig-xv-backdrop{position:fixed;inset:0;width:100vw;height:100dvh;max-width:none;max-height:none;margin:0;padding:12px;border:0;background:rgba(0,0,0,.72);box-sizing:border-box;overflow:auto;color:inherit}.iig-xv-backdrop[open]{display:flex;align-items:flex-start;justify-content:center}.iig-xv-backdrop::backdrop{background:rgba(0,0,0,.72)}
+  .iig-xv-card{width:min(620px,calc(100vw - 24px));max-height:none;overflow:visible;margin:8px auto 28px;background:var(--SmartThemeBlurTintColor,#181818);color:var(--SmartThemeBodyColor,#eee);border:1px solid var(--SmartThemeBorderColor,#666);border-radius:18px;padding:18px;box-shadow:0 18px 60px #0009}
+  .iig-xv-card h3{margin:0 0 6px}.iig-xv-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.iig-xv-card label{display:grid;gap:5px;margin:10px 0}.iig-xv-prompt-wrap{padding:10px 12px;border:1px solid color-mix(in srgb,var(--SmartThemeBorderColor,#777) 70%,transparent);border-radius:13px;background:rgba(0,0,0,.16)}.iig-xv-prompt-title{font-weight:700}.iig-xv-prompt-help{font-size:.82em;opacity:.72}.iig-xv-card textarea{min-height:90px;resize:vertical;background:rgba(0,0,0,.28)!important;color:var(--SmartThemeBodyColor,#eee)!important}.iig-xv-card select,.iig-xv-card textarea{width:100%}.iig-xv-cost{padding:10px 12px;border:1px solid #ffffff24;border-radius:12px;margin:10px 0}.iig-xv-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:14px}.iig-xv-actions button{width:auto!important;min-width:0!important;padding:8px 12px!important;border:1px solid rgba(255,255,255,.25)!important;border-radius:10px!important;background:rgba(18,18,22,.92)!important;color:#fff!important}.iig-xv-actions .iig-xv-go{background:rgba(48,82,130,.95)!important}.iig-xv-status{min-height:1.4em;opacity:.85}.iig-xv-card .iig-xv-audio{display:flex;align-items:center;gap:8px}.iig-xv-card .iig-xv-audio input{width:auto}@media(max-width:520px){.iig-xv-grid{grid-template-columns:1fr}.iig-xv-card{padding:13px}.iig-xv-card textarea{min-height:84px}.iig-xv-actions{padding-top:4px}}
   `;
   document.head.appendChild(style);
 }
 export function askXaiVideoOptions(initialPrompt = '') {
   ensureDialogStyle();
   return new Promise((resolve) => {
-    const wrap = document.createElement('div');
+    const wrap = document.createElement('dialog');
     wrap.className = 'iig-xv-backdrop';
+    wrap.setAttribute('aria-label', 'Grok Video');
     wrap.innerHTML = `<div class="iig-xv-card" role="dialog" aria-modal="true">
-      <div style="display:flex;align-items:center;gap:10px"><h3 style="flex:1">🎬 Оживить изображение через Grok</h3><button type="button" class="iig-xv-x" aria-label="Закрыть" style="width:34px!important;height:34px!important;min-width:34px!important;padding:0!important;border-radius:10px!important">✕</button></div>
+      <h3>🎬 Оживить изображение через Grok</h3>
       <div style="opacity:.75">Исходная картинка останется на месте.</div>
       <label class="iig-xv-prompt-wrap"><span class="iig-xv-prompt-title">✍️ Твой промпт движения</span><span class="iig-xv-prompt-help">Пиши здесь именно то, что должно произойти в видео. Текст можно полностью заменить.</span><textarea class="iig-xv-prompt" placeholder="Например: девушка медленно поднимает взгляд, парень наклоняется ближе, волосы слегка движутся, камера плавно приближается…"></textarea></label>
       <div class="iig-xv-grid">
@@ -131,6 +132,7 @@ export function askXaiVideoOptions(initialPrompt = '') {
       <div class="iig-xv-actions"><button type="button" class="iig-xv-cancel">Отмена</button><button type="button" class="iig-xv-go">🎬 Создать видео</button></div>
     </div>`;
     document.body.appendChild(wrap);
+    wrap.showModal();
     const promptBox = wrap.querySelector('.iig-xv-prompt');
     const rememberedPrompt = localStorage.getItem('iig_xai_video_prompt') || '';
     promptBox.value = String(initialPrompt || rememberedPrompt || '');
@@ -152,8 +154,8 @@ export function askXaiVideoOptions(initialPrompt = '') {
     [model,duration,resolution].forEach(el => el.addEventListener('change', update)); update();
     const finish = (value) => { wrap.remove(); resolve(value); };
     wrap.querySelector('.iig-xv-cancel').onclick = () => finish(null);
-    wrap.querySelector('.iig-xv-x').onclick = () => finish(null);
     wrap.addEventListener('click', e => { if (e.target === wrap) finish(null); });
+    wrap.addEventListener('cancel', e => { e.preventDefault(); finish(null); });
     wrap.querySelector('.iig-xv-go').onclick = () => {
       const value = {
         prompt: promptBox.value.trim(),
