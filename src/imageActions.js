@@ -11,7 +11,7 @@
 import { t } from './i18n.js';
 import { iigLog, getSettings } from './settings.js';
 import { regenerateSingleTag } from './pipeline.js';
-import { askAndAnimateImage } from './xaiVideo.js';
+import { animateImageInteractive } from './xaiVideo.js';
 
 const IMG_SELECTOR = 'img[data-iig-instruction]';
 
@@ -104,8 +104,8 @@ function buildActions(img, isError) {
     actions.innerHTML = isError
         ? `<button class="iig-img-action iig-img-retry" type="button" title="${t`Retry`}" aria-label="${t`Retry`}"><i class="fa-solid fa-rotate-right"></i></button>`
         : `<button class="iig-img-action iig-img-download" type="button" title="${t`Download`}" aria-label="${t`Download`}"><i class="fa-solid fa-download"></i></button>`
-          + `<button class="iig-img-action iig-img-video" type="button" title="Оживить через Grok" aria-label="Оживить через Grok"><i class="fa-solid fa-film"></i></button>`
-          + `<button class="iig-img-action iig-img-regen" type="button" title="${t`Regenerate this image`}" aria-label="${t`Regenerate this image`}"><i class="fa-solid fa-rotate-right"></i></button>`;
+          + `<button class="iig-img-action iig-img-regen" type="button" title="${t`Regenerate this image`}" aria-label="${t`Regenerate this image`}"><i class="fa-solid fa-rotate-right"></i></button>`
+          + `<button class="iig-img-action iig-img-animate" type="button" title="Оживить через Grok" aria-label="Оживить через Grok">🎬</button>`;
 
     const stopAll = (e) => { e.stopPropagation(); e.preventDefault(); };
     actions.addEventListener('pointerdown', (e) => e.stopPropagation());
@@ -115,10 +115,6 @@ function buildActions(img, isError) {
         stopAll(e);
         await downloadImage(img);
     });
-    actions.querySelector('.iig-img-video')?.addEventListener('click', async (e) => {
-        stopAll(e);
-        await askAndAnimateImage(img);
-    });
     actions.querySelector('.iig-img-regen')?.addEventListener('click', async (e) => {
         stopAll(e);
         await regenerateOne(img);
@@ -126,6 +122,22 @@ function buildActions(img, isError) {
     actions.querySelector('.iig-img-retry')?.addEventListener('click', async (e) => {
         stopAll(e);
         await regenerateOne(img);
+    });
+    actions.querySelector('.iig-img-animate')?.addEventListener('click', async (e) => {
+        stopAll(e);
+        const button = e.currentTarget;
+        try {
+            button.disabled = true;
+            const result = await animateImageInteractive(img.src, (status) => { button.title = status; });
+            if (!result) return;
+            showVideoPreview(img, result.url);
+        } catch (error) {
+            iigLog('ERROR', 'xAI video failed:', error);
+            toastr.error(error?.message || 'Не удалось создать видео', 'Grok Video');
+        } finally {
+            button.disabled = false;
+            button.title = 'Оживить через Grok';
+        }
     });
 
     return actions;
@@ -183,4 +195,23 @@ async function regenerateOne(img) {
     if (tagIndex < 0) return;
 
     await regenerateSingleTag(messageId, tagIndex);
+}
+
+
+function showVideoPreview(img, url) {
+    const host = img.closest('.iig-img-host') || img.parentElement;
+    if (!host) return;
+    host.querySelector(':scope > .iig-xai-video-preview')?.remove();
+    const box = document.createElement('div');
+    box.className = 'iig-xai-video-preview';
+    box.style.cssText = 'margin-top:8px;display:grid;gap:6px';
+    const video = document.createElement('video');
+    video.src = url; video.controls = true; video.playsInline = true; video.preload = 'metadata';
+    video.style.cssText = 'width:100%;max-height:75vh;border-radius:10px';
+    const back = document.createElement('button');
+    back.type = 'button'; back.textContent = '🖼️ Скрыть видео';
+    back.onclick = (e) => { e.preventDefault(); e.stopPropagation(); box.remove(); };
+    box.append(video, back);
+    host.appendChild(box);
+    video.play().catch(() => {});
 }

@@ -1,136 +1,158 @@
 import { getSettings, iigLog } from './settings.js';
 
-const PRICES = {
-  'grok-imagine-video': { '480p': 0.05, '720p': 0.07 },
-  'grok-imagine-video-1.5': { '480p': 0.08, '720p': 0.14, '1080p': 0.25 },
+const VIDEO_MODELS = {
+  'grok-imagine-video': { label: 'Grok Video · экономный', rates: { '480p': 0.05, '720p': 0.07 }, imageInput: 0.002 },
+  'grok-imagine-video-1.5': { label: 'Grok Video 1.5 · лучшее качество', rates: { '480p': 0.08, '720p': 0.14, '1080p': 0.25 }, imageInput: 0.01 },
 };
 
-function getXaiKey() {
-  const s = getSettings();
-  return String(s.apiKeys?.xai || (s.apiType === 'xai' ? s.apiKey : '') || '').trim();
+function xaiConfig(settings = getSettings()) {
+  if (settings.apiType === 'xai' && settings.apiKey) return settings;
+  const saved = (settings.connectionProfiles || []).find(p => p?.apiType === 'xai' && p?.apiKey);
+  if (saved) return saved;
+  throw new Error('Не найден сохранённый профиль xAI с API-ключом.');
 }
-
-async function imageToDataUrl(img) {
-  if (img.src.startsWith('data:')) return img.src;
-  const r = await fetch(img.src);
-  if (!r.ok) throw new Error(`Не удалось прочитать исходную картинку: HTTP ${r.status}`);
-  const blob = await r.blob();
+function endpointBase(settings) {
+  return String(settings.endpoint || 'https://api.x.ai').trim().replace(/\/+$/, '');
+}
+function headers(settings) {
+  if (!settings.apiKey) throw new Error('В профиле xAI не найден API-ключ.');
+  return { 'Content-Type': 'application/json', 'Authorization': `Bearer ${settings.apiKey}` };
+}
+async function imageAsDataUrl(src) {
+  if (String(src).startsWith('data:image/')) return src;
+  const response = await fetch(src, { cache: 'no-store' });
+  if (!response.ok) throw new Error(`Не удалось прочитать исходную картинку (HTTP ${response.status}).`);
+  const blob = await response.blob();
+  if (!blob.type.startsWith('image/')) throw new Error('Исходный файл не является изображением.');
   return await new Promise((resolve, reject) => {
-    const fr = new FileReader();
-    fr.onload = () => resolve(String(fr.result));
-    fr.onerror = () => reject(fr.error || new Error('FileReader failed'));
-    fr.readAsDataURL(blob);
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(new Error('Не удалось подготовить картинку для Grok Video.'));
+    reader.readAsDataURL(blob);
   });
 }
-
-function estimate(model, resolution, duration) {
-  const p = PRICES[model]?.[resolution];
-  return p ? (p * duration + 0.01).toFixed(2) : '?';
-}
-
-function makeModal() {
-  const wrap = document.createElement('div');
-  wrap.className = 'iig-video-modal-backdrop';
-  wrap.innerHTML = `
-    <div class="iig-video-modal" role="dialog" aria-modal="true">
-      <div class="iig-video-title">🎬 Оживить изображение через Grok</div>
-      <label>Что должно происходить?</label>
-      <textarea class="iig-video-prompt" rows="5" placeholder="Например: обе девушки мягко улыбаются, смотрят друг на друга, волосы слегка двигаются от ветра, камера медленно приближается..."></textarea>
-      <div class="iig-video-grid">
-        <label>Модель<select class="iig-video-model"><option value="grok-imagine-video">Grok Video · дешевле</option><option value="grok-imagine-video-1.5" selected>Grok Video 1.5 · лучше</option></select></label>
-        <label>Длительность<select class="iig-video-duration"><option value="3">3 сек</option><option value="5" selected>5 сек</option><option value="8">8 сек</option><option value="10">10 сек</option><option value="15">15 сек</option></select></label>
-        <label>Качество<select class="iig-video-resolution"><option value="480p">480p · эконом</option><option value="720p" selected>720p · HD</option><option value="1080p">1080p · Full HD</option></select></label>
-        <label class="iig-video-audio-label"><input class="iig-video-audio" type="checkbox" checked> 🔊 Генерировать звук</label>
-      </div>
-      <div class="iig-video-cost"></div>
-      <div class="iig-video-note">Исходная картинка останется на месте. После просмотра можно одним нажатием вернуться к ней.</div>
-      <div class="iig-video-buttons"><button type="button" class="menu_button iig-video-cancel">Отмена</button><button type="button" class="menu_button iig-video-go">🎬 Создать видео</button></div>
-    </div>`;
-  return wrap;
-}
-
-export async function askAndAnimateImage(img) {
-  const key = getXaiKey();
-  if (!key) {
-    toastr.error('Сначала сохрани xAI API-ключ в профиле xAI Imagine.', 'Grok Video');
-    return;
+async function parseJson(response) {
+  let data = null;
+  try { data = await response.json(); } catch {}
+  if (!response.ok) {
+    const message = data?.error?.message || data?.message || `HTTP ${response.status}`;
+    throw new Error(String(message));
   }
-  const modal = makeModal();
-  document.body.appendChild(modal);
-  const model = modal.querySelector('.iig-video-model');
-  const duration = modal.querySelector('.iig-video-duration');
-  const resolution = modal.querySelector('.iig-video-resolution');
-  const audio = modal.querySelector('.iig-video-audio');
-  const prompt = modal.querySelector('.iig-video-prompt');
-  const cost = modal.querySelector('.iig-video-cost');
-  const go = modal.querySelector('.iig-video-go');
-  const cancel = modal.querySelector('.iig-video-cancel');
-  const close = () => modal.remove();
-  const refresh = () => {
-    if (model.value === 'grok-imagine-video' && resolution.value === '1080p') resolution.value = '720p';
-    const isClassic = model.value === 'grok-imagine-video';
-    resolution.querySelector('option[value="1080p"]').disabled = isClassic;
-    cost.textContent = `Ориентировочно: ≈ $${estimate(model.value, resolution.value, Number(duration.value))} за этот ролик (+ возможные мелкие входные расходы).`;
+  return data || {};
+}
+export async function fetchXaiVideoModels() {
+  const settings = xaiConfig();
+  const response = await fetch(`${endpointBase(settings)}/v1/video-generation-models`, { headers: { Authorization: `Bearer ${settings.apiKey}` }, cache: 'no-store' });
+  const data = await parseJson(response);
+  const list = Array.isArray(data?.data) ? data.data : Array.isArray(data?.models) ? data.models : [];
+  return list.map(x => typeof x === 'string' ? x : x?.id || x?.name).filter(Boolean);
+}
+export function estimateXaiVideoCost({ model, duration, resolution }) {
+  const info = VIDEO_MODELS[model] || VIDEO_MODELS['grok-imagine-video-1.5'];
+  const rate = info.rates[resolution];
+  return Number.isFinite(rate) ? duration * rate + info.imageInput : null;
+}
+export async function generateXaiVideoFromImage(imageSrc, options, onStatus = () => {}) {
+  const settings = xaiConfig();
+  const model = options.model || 'grok-imagine-video';
+  const info = VIDEO_MODELS[model];
+  if (!info) throw new Error(`Неизвестная video-модель: ${model}`);
+  let resolution = options.resolution || '480p';
+  if (!info.rates[resolution]) resolution = model === 'grok-imagine-video' ? '720p' : '480p';
+  const duration = Math.max(1, Math.min(15, Number(options.duration) || 5));
+  onStatus('Подготавливаю исходную картинку…');
+  const dataUrl = await imageAsDataUrl(imageSrc);
+  const body = {
+    model,
+    image: { url: dataUrl },
+    duration,
+    resolution,
+    generate_audio: options.generateAudio !== false,
   };
-  model.addEventListener('change', refresh); duration.addEventListener('change', refresh); resolution.addEventListener('change', refresh); refresh();
-  cancel.addEventListener('click', close);
-  modal.addEventListener('click', e => { if (e.target === modal) close(); });
-  go.addEventListener('click', async () => {
-    const text = prompt.value.trim();
-    if (!text) { toastr.warning('Напиши, как именно оживить картинку.', 'Grok Video'); return; }
-    go.disabled = true; cancel.disabled = true; go.textContent = '⏳ Запускаю…';
-    try {
-      const dataUrl = await imageToDataUrl(img);
-      const videoUrl = await generateXaiVideo({ key, imageDataUrl: dataUrl, prompt: text, model: model.value, duration: Number(duration.value), resolution: resolution.value, generateAudio: audio.checked, onStatus: s => { go.textContent = s; } });
-      close();
-      showVideoOverImage(img, videoUrl);
-      toastr.success('Видео готово 🎬', 'Grok Video');
-    } catch (e) {
-      iigLog('ERROR', 'xAI video failed:', e);
-      toastr.error(String(e?.message || e), 'Grok Video');
-      go.disabled = false; cancel.disabled = false; go.textContent = '🎬 Создать видео';
-    }
+  const prompt = String(options.prompt || '').trim();
+  if (prompt) body.prompt = prompt;
+  onStatus('Отправляю в Grok Video…');
+  const start = await fetch(`${endpointBase(settings)}/v1/videos/generations`, {
+    method: 'POST', headers: headers(settings), body: JSON.stringify(body),
   });
-  setTimeout(() => prompt.focus(), 50);
-}
-
-async function generateXaiVideo({ key, imageDataUrl, prompt, model, duration, resolution, generateAudio, onStatus }) {
-  const body = { model, prompt, image: { url: imageDataUrl }, duration, resolution, generate_audio: !!generateAudio };
-  const start = await fetch('https://api.x.ai/v1/videos/generations', { method: 'POST', headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-  const startText = await start.text();
-  let startData = {}; try { startData = JSON.parse(startText); } catch {}
-  if (!start.ok) throw new Error(`xAI ${start.status}: ${startData?.error?.message || startData?.message || startText.slice(0, 500)}`);
-  const id = startData.request_id;
-  if (!id) throw new Error('xAI не вернул request_id.');
-  iigLog('INFO', `xAI video started: model=${model} duration=${duration}s resolution=${resolution} request=${id}`);
-  const deadline = Date.now() + 12 * 60 * 1000;
-  let tick = 0;
-  while (Date.now() < deadline) {
+  const started = await parseJson(start);
+  const requestId = started.request_id;
+  if (!requestId) throw new Error('xAI не вернул request_id.');
+  const begun = Date.now();
+  while (Date.now() - begun < 12 * 60 * 1000) {
     await new Promise(r => setTimeout(r, 5000));
-    tick += 5; onStatus?.(`⏳ Grok работает… ${tick}с`);
-    const r = await fetch(`https://api.x.ai/v1/videos/${encodeURIComponent(id)}`, { headers: { Authorization: `Bearer ${key}` } });
-    const txt = await r.text(); let data = {}; try { data = JSON.parse(txt); } catch {}
-    if (!r.ok) throw new Error(`xAI polling ${r.status}: ${data?.error?.message || data?.message || txt.slice(0, 500)}`);
-    if (data.status === 'done') {
-      const url = data?.video?.url || data?.url;
-      if (!url) throw new Error('xAI сообщил done, но URL видео отсутствует.');
-      return url;
+    const elapsed = Math.round((Date.now() - begun) / 1000);
+    onStatus(`Grok оживляет сцену… ${elapsed}с`);
+    const poll = await fetch(`${endpointBase(settings)}/v1/videos/${encodeURIComponent(requestId)}`, {
+      headers: { Authorization: `Bearer ${settings.apiKey}` }, cache: 'no-store',
+    });
+    const result = await parseJson(poll);
+    if (result.status === 'done') {
+      const url = result.video?.url || result.video_url || result.url;
+      if (!url) throw new Error('Видео готово, но xAI не вернул URL.');
+      iigLog('INFO', `xAI video ready: model=${model}, duration=${duration}, resolution=${resolution}`);
+      onStatus('Видео готово');
+      return { url, requestId, model, duration, resolution };
     }
-    if (data.status === 'failed' || data.status === 'expired') throw new Error(`Генерация ${data.status}: ${data?.error?.message || data?.message || 'без подробностей'}`);
+    if (result.status === 'failed' || result.status === 'expired') {
+      throw new Error(result.error?.message || `Генерация завершилась со статусом ${result.status}.`);
+    }
   }
-  throw new Error('Видео не успело сгенерироваться за 12 минут.');
+  throw new Error('Grok Video не завершил генерацию за 12 минут.');
 }
 
-function showVideoOverImage(img, url) {
-  const host = img.closest('.iig-img-host') || img.parentElement;
-  if (!host) return;
-  host.querySelector(':scope > .iig-generated-video')?.remove();
-  host.querySelector(':scope > .iig-video-view-actions')?.remove();
-  const video = document.createElement('video');
-  video.className = 'iig-generated-video'; video.src = url; video.controls = true; video.autoplay = true; video.loop = true; video.playsInline = true;
-  img.style.display = 'none'; host.appendChild(video);
-  const bar = document.createElement('div'); bar.className = 'iig-video-view-actions';
-  bar.innerHTML = `<button type="button" class="menu_button iig-video-back">🖼️ Вернуться к картинке</button><a class="menu_button iig-video-open" href="${url}" target="_blank" rel="noopener">🎬 Открыть видео</a>`;
-  host.appendChild(bar);
-  bar.querySelector('.iig-video-back').addEventListener('click', e => { e.preventDefault(); video.pause(); video.remove(); bar.remove(); img.style.display = ''; });
+function ensureDialogStyle() {
+  if (document.getElementById('iig-xai-video-style')) return;
+  const style = document.createElement('style');
+  style.id = 'iig-xai-video-style';
+  style.textContent = `
+  .iig-xv-backdrop{position:fixed;inset:0;z-index:100000;background:#000a;display:grid;place-items:center;padding:16px}
+  .iig-xv-card{width:min(620px,96vw);max-height:90vh;overflow:auto;background:var(--SmartThemeBlurTintColor,#181818);color:var(--SmartThemeBodyColor,#eee);border:1px solid var(--SmartThemeBorderColor,#666);border-radius:18px;padding:18px;box-shadow:0 18px 60px #0009}
+  .iig-xv-card h3{margin:0 0 6px}.iig-xv-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.iig-xv-card label{display:grid;gap:5px;margin:10px 0}.iig-xv-card textarea{min-height:120px;resize:vertical}.iig-xv-card select,.iig-xv-card textarea{width:100%}.iig-xv-cost{padding:10px 12px;border:1px solid #ffffff24;border-radius:12px;margin:10px 0}.iig-xv-actions{display:flex;gap:10px;justify-content:flex-end;margin-top:14px}.iig-xv-status{min-height:1.4em;opacity:.85}.iig-xv-card .iig-xv-audio{display:flex;align-items:center;gap:8px}.iig-xv-card .iig-xv-audio input{width:auto}@media(max-width:520px){.iig-xv-grid{grid-template-columns:1fr}}
+  `;
+  document.head.appendChild(style);
+}
+export function askXaiVideoOptions() {
+  ensureDialogStyle();
+  return new Promise((resolve) => {
+    const wrap = document.createElement('div');
+    wrap.className = 'iig-xv-backdrop';
+    wrap.innerHTML = `<div class="iig-xv-card" role="dialog" aria-modal="true">
+      <h3>🎬 Оживить изображение через Grok</h3>
+      <div style="opacity:.75">Исходная картинка останется на месте.</div>
+      <label>Что должно происходить<textarea class="iig-xv-prompt" placeholder="Например: волосы слегка колышутся, персонажи моргают и смотрят друг на друга, медленный наезд камеры…"></textarea></label>
+      <div class="iig-xv-grid">
+        <label>Модель<select class="iig-xv-model"><option value="grok-imagine-video">Grok Video · экономный</option><option value="grok-imagine-video-1.5">Grok Video 1.5 · качество</option></select></label>
+        <label>Длительность<select class="iig-xv-duration"><option>3</option><option selected>5</option><option>8</option><option>10</option><option>15</option></select></label>
+        <label>Качество<select class="iig-xv-resolution"><option value="480p">480p · дёшево</option><option value="720p" selected>720p · HD</option><option value="1080p">1080p · Full HD</option></select></label>
+        <label class="iig-xv-audio"><input class="iig-xv-audio-input" type="checkbox" checked> 🔊 Генерировать звук</label>
+      </div>
+      <div class="iig-xv-cost"></div><div class="iig-xv-status"></div>
+      <div class="iig-xv-actions"><button type="button" class="iig-xv-cancel">Отмена</button><button type="button" class="iig-xv-go">🎬 Создать видео</button></div>
+    </div>`;
+    document.body.appendChild(wrap);
+    const model = wrap.querySelector('.iig-xv-model'), duration = wrap.querySelector('.iig-xv-duration'), resolution = wrap.querySelector('.iig-xv-resolution'), cost = wrap.querySelector('.iig-xv-cost');
+    const update = () => {
+      const isClassic = model.value === 'grok-imagine-video';
+      const opt1080 = resolution.querySelector('option[value="1080p"]');
+      opt1080.disabled = isClassic;
+      if (isClassic && resolution.value === '1080p') resolution.value = '720p';
+      const value = estimateXaiVideoCost({ model:model.value, duration:Number(duration.value), resolution:resolution.value });
+      cost.textContent = value == null ? 'Стоимость: зависит от модели' : `Примерная стоимость этого ролика: $${value.toFixed(2)}`;
+    };
+    [model,duration,resolution].forEach(el => el.addEventListener('change', update)); update();
+    const finish = (value) => { wrap.remove(); resolve(value); };
+    wrap.querySelector('.iig-xv-cancel').onclick = () => finish(null);
+    wrap.addEventListener('click', e => { if (e.target === wrap) finish(null); });
+    wrap.querySelector('.iig-xv-go').onclick = () => finish({
+      prompt: wrap.querySelector('.iig-xv-prompt').value,
+      model:model.value, duration:Number(duration.value), resolution:resolution.value,
+      generateAudio: wrap.querySelector('.iig-xv-audio-input').checked,
+    });
+  });
+}
+export async function animateImageInteractive(imageSrc, onStatus = () => {}) {
+  const options = await askXaiVideoOptions();
+  if (!options) return null;
+  return generateXaiVideoFromImage(imageSrc, options, onStatus);
 }
