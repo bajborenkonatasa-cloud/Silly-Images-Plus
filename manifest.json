@@ -1,0 +1,16 @@
+{
+    "display_name": "Silly Images Plus",
+    "loading_order": 100,
+    "requires": [],
+    "optional": [],
+    "js": "index.js",
+    "css": "style.css",
+    "author": "local & astera + custom Plus build",
+    "version": "2.1.0-plus.1",
+    "homePage": "https://github.com/0xl0cal/sillyimages/",
+    "auto_update": false,
+    "i18n": {
+        "ru-ru": "i18n/ru-ru.json",
+        "uk-ua": "i18n/uk-ua.json"
+    }
+}
