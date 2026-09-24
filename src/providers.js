@@ -2347,6 +2347,105 @@ function bytesToDataUrl(bytes, mime) {
     return `data:${mime};base64,${btoa(binary)}`;
 }
 
+
+// NovelAI V4.5 Precise Reference does not consume an arbitrary source image
+// directly. The web UI fits every reference into one of three supported
+// canvases and pads the unused area with black. Do the same client-side so the
+// Director Reference payload has the shape NovelAI expects.
+function detectBase64ImageMime(base64) {
+    const head = String(base64 || '').slice(0, 24);
+    if (head.startsWith('iVBORw0KGgo')) return 'image/png';
+    if (head.startsWith('/9j/')) return 'image/jpeg';
+    if (head.startsWith('UklGR')) return 'image/webp';
+    return 'image/png';
+}
+
+function base64ToUint8Array(base64) {
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    return bytes;
+}
+
+function blobToBase64(blob) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+            const dataUrl = String(reader.result || '');
+            const comma = dataUrl.indexOf(',');
+            resolve(comma >= 0 ? dataUrl.slice(comma + 1) : dataUrl);
+        };
+        reader.onerror = () => reject(reader.error || new Error('Could not encode Precise Reference image.'));
+        reader.readAsDataURL(blob);
+    });
+}
+
+async function loadReferenceBitmap(base64) {
+    const mime = detectBase64ImageMime(base64);
+    const blob = new Blob([base64ToUint8Array(base64)], { type: mime });
+    if (typeof createImageBitmap === 'function') {
+        return await createImageBitmap(blob);
+    }
+
+    // Fallback for older WebViews.
+    return await new Promise((resolve, reject) => {
+        const img = new Image();
+        const url = URL.createObjectURL(blob);
+        img.onload = () => {
+            URL.revokeObjectURL(url);
+            resolve(img);
+        };
+        img.onerror = () => {
+            URL.revokeObjectURL(url);
+            reject(new Error('Could not decode Precise Reference image.'));
+        };
+        img.src = url;
+    });
+}
+
+function preciseReferenceCanvasSize(width, height) {
+    const ratio = width / height;
+    if (ratio < 0.85) return { width: 1024, height: 1536 };
+    if (ratio > 1.18) return { width: 1536, height: 1024 };
+    return { width: 1472, height: 1472 };
+}
+
+async function prepareNovelAiPreciseReference(base64) {
+    const bitmap = await loadReferenceBitmap(base64);
+    const sourceWidth = bitmap.width || bitmap.naturalWidth;
+    const sourceHeight = bitmap.height || bitmap.naturalHeight;
+    if (!sourceWidth || !sourceHeight) {
+        if (typeof bitmap.close === 'function') bitmap.close();
+        throw new Error('Precise Reference image has invalid dimensions.');
+    }
+
+    const target = preciseReferenceCanvasSize(sourceWidth, sourceHeight);
+    const canvas = document.createElement('canvas');
+    canvas.width = target.width;
+    canvas.height = target.height;
+    const ctx = canvas.getContext('2d', { alpha: false });
+    if (!ctx) {
+        if (typeof bitmap.close === 'function') bitmap.close();
+        throw new Error('Canvas is unavailable for Precise Reference preprocessing.');
+    }
+
+    ctx.fillStyle = '#000000';
+    ctx.fillRect(0, 0, target.width, target.height);
+    const scale = Math.min(target.width / sourceWidth, target.height / sourceHeight);
+    const drawWidth = Math.max(1, Math.round(sourceWidth * scale));
+    const drawHeight = Math.max(1, Math.round(sourceHeight * scale));
+    const x = Math.floor((target.width - drawWidth) / 2);
+    const y = Math.floor((target.height - drawHeight) / 2);
+    ctx.drawImage(bitmap, x, y, drawWidth, drawHeight);
+    if (typeof bitmap.close === 'function') bitmap.close();
+
+    const pngBlob = await new Promise((resolve, reject) => {
+        canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error('Could not export Precise Reference PNG.')), 'image/png');
+    });
+    const prepared = await blobToBase64(pngBlob);
+    return { base64: prepared, width: target.width, height: target.height };
+}
+
 export class NovelAiProvider extends Provider {
     get id() { return 'novelai'; }
     get displayName() { return 'NovelAI (native)'; }
@@ -2453,12 +2552,26 @@ export class NovelAiProvider extends Provider {
             for (const ref of references.slice(0, this.capabilities.referencesMaxCount)) {
                 let image = getReferenceImage(ref);
                 if (!image) continue;
-                // NovelAI expects base64 image data, not a data: URL wrapper.
+                // NovelAI expects raw base64 in the Director Reference arrays.
                 if (image.startsWith('data:')) {
                     const comma = image.indexOf(',');
                     if (comma >= 0) image = image.slice(comma + 1);
                 }
-                if (image) directorImages.push(image);
+                if (!image) continue;
+
+                try {
+                    const prepared = await prepareNovelAiPreciseReference(image);
+                    directorImages.push(prepared.base64);
+                    iigLog('INFO', `NovelAI Precise Reference prepared: ${prepared.width}x${prepared.height}`);
+                } catch (error) {
+                    throw new ProviderError({
+                        message: `Could not prepare NovelAI Precise Reference: ${error?.message || error}`,
+                        code: 'precise_reference_prepare_failed',
+                        retryable: false,
+                        providerId: 'novelai',
+                        cause: error,
+                    });
+                }
             }
 
             if (directorImages.length > 0) {
