@@ -2013,7 +2013,8 @@ export class A1111Provider extends Provider {
         return {
             ...super.capabilities,
             requiresApiKey: false,
-            referencesFormat: null,
+            referencesFormat: 'base64',
+            referencesMaxCount: 16,
         };
     }
 
@@ -2358,9 +2359,10 @@ export class NovelAiProvider extends Provider {
         };
     }
 
-    // Референсы (аватарки/рефы) NovelAI txt2img не поддерживает.
-    supportsReferences(_settings) {
-        return false;
+    // NovelAI Precise Reference is available only for V4.5 models.
+    supportsReferences(settings) {
+        const model = String(settings?.model || '');
+        return model.startsWith('nai-diffusion-4-5');
     }
 
     supportsNegativePrompt(_settings) {
@@ -2383,11 +2385,20 @@ export class NovelAiProvider extends Provider {
         return NOVELAI_MODELS.map((m) => m.id);
     }
 
-    async collectReferences(_ctx) {
-        return [];
+    async collectReferences({ messageId, matchedAdditionalRefs = [] }) {
+        const settings = getSettings();
+        if (!this.supportsReferences(settings)) return [];
+
+        // Reuse Silly Images' existing Character/Persona + Additional Reference
+        // pipeline instead of creating a second NovelAI-specific library.
+        return collectImageEditReferences(
+            { messageId, matchedAdditionalRefs },
+            this.capabilities.referencesMaxCount,
+            'base64'
+        );
     }
 
-    async generate({ prompt, style, options = {} }) {
+    async generate({ prompt, style, references = [], options = {} }) {
         const settings = getSettings();
 
         if (!settings.novelaiApiKey) {
@@ -2431,6 +2442,36 @@ export class NovelAiProvider extends Provider {
             legacy_v3_extend: false,
             add_original_image: false,
         };
+
+        // NovelAI V4.5 Precise Reference (Director Reference).
+        // Phase 1 deliberately uses Character mode with conservative defaults.
+        // UI controls for Character / Style / Character&Style + Strength/Fidelity
+        // will be added only after this transport path is proven on the tablet.
+        const isV45 = model.startsWith('nai-diffusion-4-5');
+        if (isV45 && Array.isArray(references) && references.length > 0) {
+            const directorImages = [];
+            for (const ref of references.slice(0, this.capabilities.referencesMaxCount)) {
+                let image = getReferenceImage(ref);
+                if (!image) continue;
+                // NovelAI expects base64 image data, not a data: URL wrapper.
+                if (image.startsWith('data:')) {
+                    const comma = image.indexOf(',');
+                    if (comma >= 0) image = image.slice(comma + 1);
+                }
+                if (image) directorImages.push(image);
+            }
+
+            if (directorImages.length > 0) {
+                parameters.director_reference_images = directorImages;
+                parameters.director_reference_descriptions = directorImages.map(() => ({
+                    caption: { base_caption: 'character', char_captions: [] },
+                }));
+                parameters.director_reference_information_extracted = directorImages.map(() => 1);
+                parameters.director_reference_strength_values = directorImages.map(() => 0.65);
+                parameters.director_reference_secondary_strength_values = directorImages.map(() => 0.75);
+                iigLog('INFO', `NovelAI Precise Reference: ${directorImages.length} character ref(s), strength=0.65 fidelity=0.75`);
+            }
+        }
 
         if (isV4Family) {
             parameters.v4_prompt = {
