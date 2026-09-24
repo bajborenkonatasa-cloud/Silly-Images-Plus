@@ -235,7 +235,7 @@ function buildApiSettingsSectionHtml(settings = getSettings()) {
                 </select><div></div></div>
                 <div class="flex-row"><label>Default Strength</label><input id="iig_novelai_precise_strength" class="flex1" type="range" min="0" max="1" step="0.05" value="${Number.isFinite(Number(settings.novelaiPreciseReferenceStrength)) ? Number(settings.novelaiPreciseReferenceStrength) : 0.65}"><span id="iig_novelai_precise_strength_value">${Number.isFinite(Number(settings.novelaiPreciseReferenceStrength)) ? Number(settings.novelaiPreciseReferenceStrength).toFixed(2) : '0.65'}</span></div>
                 <div class="flex-row"><label>Default Fidelity</label><input id="iig_novelai_precise_fidelity" class="flex1" type="range" min="0" max="1" step="0.05" value="${Number.isFinite(Number(settings.novelaiPreciseReferenceFidelity)) ? Number(settings.novelaiPreciseReferenceFidelity) : 0.75}"><span id="iig_novelai_precise_fidelity_value">${Number.isFinite(Number(settings.novelaiPreciseReferenceFidelity)) ? Number(settings.novelaiPreciseReferenceFidelity).toFixed(2) : '0.75'}</span></div>
-                <div id="iig_novelai_precise_status" class="hint">Select a V4.5 model to use Precise Reference.</div>
+                <div id="iig_novelai_precise_status" class="hint">V4.5: Precise Reference готов. V5: референсы не отправляются.</div>
             </div>
 
             <div class="flex-row ${settings.apiType === 'naistera' ? 'iig-hidden' : ''}" id="iig_model_row">
@@ -2321,7 +2321,8 @@ function bindAdditionalReferencesEvents(settings) {
         const isPriorityField = target.classList.contains('iig-additional-ref-priority');
         const isNovelAiStrength = target.classList.contains('iig-additional-ref-novelai-strength');
         const isNovelAiFidelity = target.classList.contains('iig-additional-ref-novelai-fidelity');
-        if (!isNameField && !isDescriptionField && !isGroupField && !isSecondaryField && !isPriorityField && !isNovelAiStrength && !isNovelAiFidelity) {
+        const isNovelAiCharacterLabel = target.classList.contains('iig-additional-ref-novelai-character-label');
+        if (!isNameField && !isDescriptionField && !isGroupField && !isSecondaryField && !isPriorityField && !isNovelAiStrength && !isNovelAiFidelity && !isNovelAiCharacterLabel) {
             return;
         }
 
@@ -2335,6 +2336,7 @@ function bindAdditionalReferencesEvents(settings) {
 
         if (isNameField) refs[index].name = target.value;
         if (isDescriptionField) refs[index].description = target.value;
+        if (isNovelAiCharacterLabel) refs[index].novelaiCharacterLabel = String(target.value || '').trim();
         if (isGroupField) refs[index].group = target.value;
         if (isSecondaryField) refs[index].secondaryKeys = target.value;
         if (isPriorityField) {

@@ -717,7 +717,7 @@ async function collectImageEditReferences({ messageId, matchedAdditionalRefs = [
         const image = format === 'dataUrl'
             ? await imageUrlToDataUrl(imagePath)
             : await imageUrlToBase64(imagePath);
-        if (image) refs.push(makeReferenceObject(image, additionalReferenceDescription(ref, settings), 'additional'));
+        if (image) refs.push(makeReferenceObject(image, additionalReferenceDescription(ref, settings), 'additional', ref));
     }
 
     if (settings.imageContextEnabled) {
@@ -2449,6 +2449,35 @@ async function prepareNovelAiPreciseReference(base64) {
     return { base64: prepared, width: target.width, height: target.height };
 }
 
+
+function splitNovelAiCharacterSegments(prompt) {
+    return String(prompt || '')
+        .split('|')
+        .map((part) => part.trim())
+        .filter(Boolean);
+}
+
+function buildNovelAiCharacterCaptions(prompt, references = []) {
+    const segments = splitNovelAiCharacterSegments(prompt);
+    const used = new Set();
+    const captions = [];
+    for (const ref of references) {
+        if (!['character', 'character&style'].includes(ref?.novelaiMode || 'character')) continue;
+        const label = String(ref?.novelaiCharacterLabel || '').trim();
+        const description = String(getReferenceDescription(ref) || '').trim();
+        let caption = '';
+        if (label && label !== '{{char}}' && label !== '{{user}}') {
+            const lower = label.toLowerCase();
+            const idx = segments.findIndex((seg, i) => !used.has(i) && seg.toLowerCase().includes(lower));
+            if (idx >= 0) { caption = segments[idx]; used.add(idx); }
+        }
+        if (!caption && description) caption = description;
+        if (!caption) continue;
+        captions.push({ char_caption: caption, centers: [{ x: 0.5, y: 0.5 }] });
+    }
+    return captions.slice(0, 6);
+}
+
 export class NovelAiProvider extends Provider {
     get id() { return 'novelai'; }
     get displayName() { return 'NovelAI (native)'; }
@@ -2572,7 +2601,7 @@ export class NovelAiProvider extends Provider {
                     const mode = ['character', 'style', 'character&style'].includes(ref?.novelaiMode) ? ref.novelaiMode : defaultMode;
                     const strength = Number.isFinite(Number(ref?.novelaiStrength)) ? Math.max(0, Math.min(1, Number(ref.novelaiStrength))) : defaultStrength;
                     const fidelity = Number.isFinite(Number(ref?.novelaiFidelity)) ? Math.max(0, Math.min(1, Number(ref.novelaiFidelity))) : defaultFidelity;
-                    directorMeta.push({ mode, strength, fidelity, name: String(ref?.referenceName || ref?.source || 'reference') });
+                    directorMeta.push({ mode, strength, fidelity, name: String(ref?.referenceName || ref?.source || 'reference'), characterLabel: String(ref?.novelaiCharacterLabel || '').trim() });
                     iigLog('INFO', `NovelAI Precise Reference prepared: ${prepared.width}x${prepared.height} type=${mode} strength=${strength.toFixed(2)} fidelity=${fidelity.toFixed(2)}`);
                 } catch (error) {
                     throw new ProviderError({
@@ -2601,15 +2630,20 @@ export class NovelAiProvider extends Provider {
             }
         }
 
+        const novelAiCharacterCaptions = isV45 ? buildNovelAiCharacterCaptions(fullPrompt, references) : [];
+        if (novelAiCharacterCaptions.length > 0) {
+            iigLog('INFO', `NovelAI Character Prompts: ${novelAiCharacterCaptions.length} mapped caption(s)`);
+        }
+
         if (isV4Family) {
             parameters.v4_prompt = {
-                caption: { base_caption: fullPrompt, char_captions: [] },
+                caption: { base_caption: fullPrompt, char_captions: novelAiCharacterCaptions },
                 use_coords: false,
                 use_order: true,
                 legacy_uc: false,
             };
             parameters.v4_negative_prompt = {
-                caption: { base_caption: NOVELAI_DEFAULT_NEGATIVE_PROMPT, char_captions: [] },
+                caption: { base_caption: NOVELAI_DEFAULT_NEGATIVE_PROMPT, char_captions: novelAiCharacterCaptions.map(() => ({ char_caption: '', centers: [{ x: 0.5, y: 0.5 }] })) },
                 use_coords: false,
                 use_order: false,
                 legacy_uc: false,

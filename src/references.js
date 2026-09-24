@@ -145,6 +145,7 @@ export function makeReferenceObject(image, description = '', source = '', meta =
         if (Number.isFinite(strength)) result.novelaiStrength = Math.max(-1, Math.min(1, strength));
         if (Number.isFinite(fidelity)) result.novelaiFidelity = Math.max(-1, Math.min(1, fidelity));
         result.referenceName = String(meta.name || '').trim();
+        result.novelaiCharacterLabel = String(meta.novelaiCharacterLabel || '').trim();
     }
     return result;
 }
@@ -657,6 +658,7 @@ export async function collectCharacterLibraryReferences(kind, format, settings =
                 image,
                 `${appearanceDescription} ${temporaryPrimary.description}`.trim(),
                 source,
+                { novelaiCharacterLabel: isUser ? '{{user}}' : '{{char}}', name: isUser ? '{{user}}' : '{{char}}' },
             ));
         }
     }
@@ -671,6 +673,7 @@ export async function collectCharacterLibraryReferences(kind, format, settings =
                     image,
                     temporaryPrimary ? primary.description : sharedDescription,
                     source,
+                    { novelaiCharacterLabel: isUser ? '{{user}}' : '{{char}}', name: isUser ? '{{user}}' : '{{char}}' },
                 ));
             }
         }
@@ -686,7 +689,7 @@ export async function collectCharacterLibraryReferences(kind, format, settings =
             const description = results.length === 0 && sharedDescription
                 ? `${sharedDescription} ${item.description}`.trim()
                 : item.description;
-            results.push(makeReferenceObject(image, description, source));
+            results.push(makeReferenceObject(image, description, source, { novelaiCharacterLabel: isUser ? '{{user}}' : '{{char}}', name: isUser ? '{{user}}' : '{{char}}' }));
         }
     }
 
@@ -854,7 +857,11 @@ export function buildAdditionalReferenceRowsHtml(settings = getSettings(), viewS
                             <span>Fidelity <b class="iig-novelai-fidelity-value">${Number.isFinite(Number(selectedRef.novelaiFidelity)) ? Number(selectedRef.novelaiFidelity).toFixed(2) : '0.75'}</b></span>
                             <input type="range" class="iig-additional-ref-novelai-fidelity" min="0" max="1" step="0.05" value="${Number.isFinite(Number(selectedRef.novelaiFidelity)) ? Number(selectedRef.novelaiFidelity) : 0.75}">
                         </label>
-                        <small>Used only by NovelAI V4.5 Native. Other providers ignore these fields.</small>
+                        <label>
+                            <span>Персонаж в промпте</span>
+                            <input type="text" class="text_pole iig-additional-ref-novelai-character-label" placeholder="например: Hanabi или Axel" value="${sanitizeForHtml(selectedRef.novelaiCharacterLabel || '')}">
+                        </label>
+                        <small>Для NovelAI V4.5 Native. Имя помогает связать этот референс с отдельным Character Prompt. Оставь пустым для автоматического режима.</small>
                     </div>
                 </div>
             </div>
@@ -1234,6 +1241,7 @@ export function buildLorebookExportJson(lorebook) {
             novelaiMode: ['character', 'style', 'character&style'].includes(ref?.novelaiMode) ? ref.novelaiMode : 'character',
             novelaiStrength: Number.isFinite(Number(ref?.novelaiStrength)) ? Number(ref.novelaiStrength) : 0.65,
             novelaiFidelity: Number.isFinite(Number(ref?.novelaiFidelity)) ? Number(ref.novelaiFidelity) : 0.75,
+            novelaiCharacterLabel: String(ref?.novelaiCharacterLabel || ''),
             imageUrl: '',
         })),
     };
@@ -1320,6 +1328,7 @@ export async function importLorebookFromPayload(payload, meta = {}) {
             novelaiMode: ['character', 'style', 'character&style'].includes(raw?.novelaiMode) ? raw.novelaiMode : 'character',
             novelaiStrength: Number.isFinite(Number(raw?.novelaiStrength)) ? Number(raw.novelaiStrength) : 0.65,
             novelaiFidelity: Number.isFinite(Number(raw?.novelaiFidelity)) ? Number(raw.novelaiFidelity) : 0.75,
+            novelaiCharacterLabel: String(raw?.novelaiCharacterLabel || '').trim(),
         };
 
         const imageUrl = String(raw?.imageUrl || '').trim();
