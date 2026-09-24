@@ -733,7 +733,7 @@ export function hasOriginalSillyImagesSettings() {
  * Copy the original Silly Images settings into Silly Images Plus.
  * The source object is NEVER modified or deleted.
  */
-export function importOriginalSillyImagesSettings() {
+export async function importOriginalSillyImagesSettings() {
     const context = SillyTavern.getContext();
     const source = context.extensionSettings?.[ORIGINAL_MODULE_NAME];
     if (!source || typeof source !== 'object') {
@@ -742,7 +742,19 @@ export function importOriginalSillyImagesSettings() {
 
     context.extensionSettings[MODULE_NAME] = structuredClone(source);
     const imported = getSettings(); // applies current schema/default migrations
+
+    // IMPORTANT: the old migration reloaded the page immediately after calling
+    // saveSettingsDebounced(). On mobile the reload could happen before the
+    // debounce timer wrote extensionSettings to disk, so the import appeared to
+    // do nothing. Flush the debounced save when SillyTavern exposes .flush();
+    // otherwise give the pending save enough time to complete before reload.
     context.saveSettingsDebounced();
+    if (typeof context.saveSettingsDebounced?.flush === 'function') {
+        await context.saveSettingsDebounced.flush();
+    } else {
+        await new Promise((resolve) => setTimeout(resolve, 1800));
+    }
+
     return imported;
 }
 

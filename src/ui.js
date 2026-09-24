@@ -2702,15 +2702,23 @@ function bindSettingsEvents() {
     bindConnectionProfilesEvents(settings, updateVisibility);
     bindApiSectionEvents(settings, updateVisibility);
 
-    document.getElementById('iig_plus_import_original')?.addEventListener('click', () => {
+    document.getElementById('iig_plus_import_original')?.addEventListener('click', async () => {
         const ok = window.confirm('Скопировать ВСЕ сохранённые настройки из оригинального Silly Images в Silly Images Plus?\n\nОригинальные данные не будут изменены или удалены. Текущие настройки Plus будут заменены импортированными.');
         if (!ok) return;
+
+        const button = document.getElementById('iig_plus_import_original');
+        button?.classList.add('disabled');
+
         try {
-            importOriginalSillyImagesSettings();
-            window.alert('Готово. Данные скопированы в Silly Images Plus. Сейчас страница перезагрузится.');
+            // Wait until the imported extensionSettings are actually persisted.
+            // Reloading before saveSettingsDebounced() fires loses the import,
+            // which is especially easy to reproduce on Android/mobile.
+            await importOriginalSillyImagesSettings();
+            window.alert('Готово. Данные сохранены в Silly Images Plus. Сейчас страница перезагрузится.');
             window.location.reload();
         } catch (error) {
             console.error('[IIG Plus] Import failed', error);
+            button?.classList.remove('disabled');
             window.alert(`Не удалось импортировать данные: ${error?.message || error}`);
         }
     });
