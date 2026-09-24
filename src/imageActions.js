@@ -11,6 +11,7 @@
 import { t } from './i18n.js';
 import { iigLog, getSettings } from './settings.js';
 import { regenerateSingleTag } from './pipeline.js';
+import { askAndAnimateImage } from './xaiVideo.js';
 
 const IMG_SELECTOR = 'img[data-iig-instruction]';
 
@@ -103,6 +104,7 @@ function buildActions(img, isError) {
     actions.innerHTML = isError
         ? `<button class="iig-img-action iig-img-retry" type="button" title="${t`Retry`}" aria-label="${t`Retry`}"><i class="fa-solid fa-rotate-right"></i></button>`
         : `<button class="iig-img-action iig-img-download" type="button" title="${t`Download`}" aria-label="${t`Download`}"><i class="fa-solid fa-download"></i></button>`
+          + `<button class="iig-img-action iig-img-video" type="button" title="Оживить через Grok" aria-label="Оживить через Grok"><i class="fa-solid fa-film"></i></button>`
           + `<button class="iig-img-action iig-img-regen" type="button" title="${t`Regenerate this image`}" aria-label="${t`Regenerate this image`}"><i class="fa-solid fa-rotate-right"></i></button>`;
 
     const stopAll = (e) => { e.stopPropagation(); e.preventDefault(); };
@@ -112,6 +114,10 @@ function buildActions(img, isError) {
     actions.querySelector('.iig-img-download')?.addEventListener('click', async (e) => {
         stopAll(e);
         await downloadImage(img);
+    });
+    actions.querySelector('.iig-img-video')?.addEventListener('click', async (e) => {
+        stopAll(e);
+        await askAndAnimateImage(img);
     });
     actions.querySelector('.iig-img-regen')?.addEventListener('click', async (e) => {
         stopAll(e);

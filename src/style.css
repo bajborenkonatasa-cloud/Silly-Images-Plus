@@ -2782,16 +2782,7 @@ body.iig-actions-hidden .iig-img-actions {
 
 /* Regenerate button in message extra menu - inherits mes_button styling */
 
-
-/* Silly Images Plus v0.5 — NovelAI Precise Reference */
-.iig-novelai-precise-panel, .iig-novelai-ref-box {
-    border: 1px solid var(--SmartThemeBorderColor);
-    border-radius: 10px;
-    padding: 10px;
-    margin-top: 8px;
-}
-.iig-novelai-precise-title { display:flex; justify-content:space-between; gap:8px; align-items:center; margin-bottom:6px; }
-.iig-novelai-precise-title span { opacity:.7; font-size:.85em; }
-.iig-novelai-ref-box { display:grid; gap:8px; }
-.iig-novelai-ref-box label { display:grid; gap:4px; }
-.iig-novelai-ref-box small { opacity:.7; }
+/* Silly Images Plus v0.8 — native xAI image-to-video */
+.iig-video-modal-backdrop{position:fixed;inset:0;z-index:100000;background:rgba(0,0,0,.72);display:flex;align-items:center;justify-content:center;padding:14px}
+.iig-video-modal{width:min(620px,96vw);max-height:90vh;overflow:auto;background:var(--SmartThemeBlurTintColor,#18191d);border:1px solid var(--SmartThemeBorderColor,#666);border-radius:14px;padding:16px;box-shadow:0 18px 60px rgba(0,0,0,.55)}
+.iig-video-title{font-size:1.15em;font-weight:700;margin-bottom:12px}.iig-video-modal textarea,.iig-video-modal select{width:100%;box-sizing:border-box}.iig-video-modal textarea{margin:6px 0 12px;resize:vertical;min-height:105px}.iig-video-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.iig-video-grid label{display:flex;flex-direction:column;gap:5px}.iig-video-audio-label{justify-content:center}.iig-video-audio-label input{width:auto}.iig-video-cost{margin-top:12px;font-weight:700}.iig-video-note{margin-top:7px;opacity:.8;font-size:.92em}.iig-video-buttons{display:flex;justify-content:flex-end;gap:8px;margin-top:14px}.iig-generated-video{display:block;width:100%;height:auto;border-radius:inherit}.iig-video-view-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:7px}.iig-video-open{text-decoration:none!important}@media(max-width:560px){.iig-video-grid{grid-template-columns:1fr}}
