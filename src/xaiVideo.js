@@ -6,11 +6,26 @@ const VIDEO_MODELS = {
 };
 
 function xaiConfig(settings = getSettings()) {
-  if (settings.apiType === 'xai' && settings.apiKey) return settings;
+  const directKey = String(settings.apiKeys?.xai || (settings.apiType === 'xai' ? settings.apiKey : '') || '').trim();
+  if (directKey) return { ...settings, apiKey: directKey, endpoint: settings.apiType === 'xai' ? settings.endpoint : 'https://api.x.ai' };
   const saved = (settings.connectionProfiles || []).find(p => p?.apiType === 'xai' && p?.apiKey);
   if (saved) return saved;
-  throw new Error('Не найден сохранённый профиль xAI с API-ключом.');
+  throw new Error('Не найден сохранённый xAI API-ключ.');
 }
+function geminiConfig(settings = getSettings()) {
+  const directKey = String(settings.apiKeys?.gemini || (settings.apiType === 'gemini' ? settings.apiKey : '') || '').trim();
+  if (directKey) return { apiKey: directKey };
+  const saved = (settings.connectionProfiles || []).find(p => p?.apiType === 'gemini' && p?.apiKey);
+  if (saved?.apiKey) return { apiKey: String(saved.apiKey).trim() };
+  throw new Error('Не найден сохранённый Gemini API-ключ. Открой профиль Gemini / nano-banana в Silly Images Plus и сохрани ключ.');
+}
+const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta';
+const VEO_MODELS = {
+  'veo-3.1-lite-generate-preview': { label: 'Veo 3.1 Lite · самый дешёвый', rates: { '720p': 0.05, '1080p': 0.08 } },
+  'veo-3.1-fast-generate-preview': { label: 'Veo 3.1 Fast · баланс', rates: { '720p': 0.10, '1080p': 0.12, '4k': 0.30 } },
+  'veo-3.1-generate-preview': { label: 'Veo 3.1 · максимум', rates: { '720p': 0.40, '1080p': 0.40, '4k': 0.60 } },
+};
+
 function endpointBase(settings) {
   return String(settings.endpoint || 'https://api.x.ai').trim().replace(/\/+$/, '');
 }
@@ -101,6 +116,74 @@ export async function generateXaiVideoFromImage(imageSrc, options, onStatus = ()
   throw new Error('Grok Video не завершил генерацию за 12 минут.');
 }
 
+function estimateVeoVideoCost({ model, duration, resolution }) {
+  const info = VEO_MODELS[model] || VEO_MODELS['veo-3.1-lite-generate-preview'];
+  const rate = info.rates[resolution];
+  return Number.isFinite(rate) ? Number(duration) * rate : null;
+}
+function dataUrlParts(dataUrl) {
+  const match = String(dataUrl).match(/^data:([^;,]+);base64,(.+)$/s);
+  if (!match) throw new Error('Не удалось подготовить картинку для Veo.');
+  return { mimeType: match[1], data: match[2] };
+}
+async function generateVeoVideoFromImage(imageSrc, options, onStatus = () => {}) {
+  const { apiKey } = geminiConfig();
+  const model = VEO_MODELS[options.model] ? options.model : 'veo-3.1-lite-generate-preview';
+  let resolution = options.resolution || '720p';
+  if (!VEO_MODELS[model].rates[resolution]) resolution = '720p';
+  let duration = [4, 6, 8].includes(Number(options.duration)) ? Number(options.duration) : 8;
+  if (resolution === '1080p' || resolution === '4k') duration = 8;
+  const prompt = String(options.prompt || '').trim();
+  if (!prompt) throw new Error('Для Veo напиши, что должно происходить в видео.');
+  onStatus('Подготавливаю исходную картинку для Veo…');
+  const parts = dataUrlParts(await imageAsDataUrl(imageSrc));
+  const body = {
+    instances: [{
+      prompt,
+      image: { inlineData: { mimeType: parts.mimeType, data: parts.data } },
+    }],
+    parameters: {
+      aspectRatio: options.aspectRatio || '9:16',
+      durationSeconds: String(duration),
+      resolution,
+      numberOfVideos: 1,
+    },
+  };
+  onStatus('Отправляю в Google Veo…');
+  const start = await fetch(`${GEMINI_BASE}/models/${encodeURIComponent(model)}:predictLongRunning`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
+    body: JSON.stringify(body),
+  });
+  const started = await parseJson(start);
+  const operationName = started?.name;
+  if (!operationName) throw new Error('Google Veo не вернул имя операции.');
+  const begun = Date.now();
+  while (Date.now() - begun < 15 * 60 * 1000) {
+    await new Promise(r => setTimeout(r, 10000));
+    const elapsed = Math.round((Date.now() - begun) / 1000);
+    onStatus(`Veo создаёт видео со звуком… ${elapsed}с`);
+    const poll = await fetch(`${GEMINI_BASE}/${operationName}`, {
+      headers: { 'x-goog-api-key': apiKey }, cache: 'no-store',
+    });
+    const result = await parseJson(poll);
+    if (!result.done) continue;
+    if (result.error) throw new Error(result.error?.message || 'Google Veo завершил генерацию с ошибкой.');
+    const sample = result?.response?.generateVideoResponse?.generatedSamples?.[0];
+    const videoUri = sample?.video?.uri;
+    if (!videoUri) throw new Error('Видео готово, но Google не вернул URI файла.');
+    onStatus('Видео готово, загружаю файл…');
+    const fileResponse = await fetch(videoUri, { headers: { 'x-goog-api-key': apiKey }, cache: 'no-store' });
+    if (!fileResponse.ok) throw new Error(`Не удалось загрузить готовое Veo-видео (HTTP ${fileResponse.status}).`);
+    const blob = await fileResponse.blob();
+    const url = URL.createObjectURL(blob);
+    iigLog('INFO', `Veo video ready: model=${model}, duration=${duration}, resolution=${resolution}`);
+    onStatus('Veo-видео готово');
+    return { url, requestId: operationName, model, duration, resolution, provider: 'veo', transientUrl: true };
+  }
+  throw new Error('Google Veo не завершил генерацию за 15 минут.');
+}
+
 function ensureDialogStyle() {
   if (document.getElementById('iig-xai-video-style')) return;
   const style = document.createElement('style');
@@ -117,15 +200,16 @@ export function askXaiVideoOptions(initialPrompt = '') {
   return new Promise((resolve) => {
     const wrap = document.createElement('dialog');
     wrap.className = 'iig-xv-backdrop';
-    wrap.setAttribute('aria-label', 'Grok Video');
+    wrap.setAttribute('aria-label', 'Video generator');
     wrap.innerHTML = `<div class="iig-xv-card" role="dialog" aria-modal="true">
-      <h3>🎬 Оживить изображение через Grok</h3>
-      <div style="opacity:.75">Исходная картинка останется на месте.</div>
-      <label class="iig-xv-prompt-wrap"><span class="iig-xv-prompt-title">✍️ Твой промпт движения</span><span class="iig-xv-prompt-help">Пиши здесь именно то, что должно произойти в видео. Текст можно полностью заменить.</span><textarea class="iig-xv-prompt" placeholder="Например: девушка медленно поднимает взгляд, парень наклоняется ближе, волосы слегка движутся, камера плавно приближается…"></textarea></label>
+      <h3>🎬 Оживить изображение</h3>
+      <div style="opacity:.75">Исходная картинка останется на месте. Выбери Grok или Google Veo.</div>
+      <label>Видеодвижок<select class="iig-xv-provider"><option value="grok">xAI · Grok Imagine Video</option><option value="veo">Google · Veo 3.1</option></select></label>
+      <label class="iig-xv-prompt-wrap"><span class="iig-xv-prompt-title">✍️ Что должно произойти и что должно быть слышно</span><span class="iig-xv-prompt-help">Движение персонажей, камера, атмосфера, реплики и звуки — всё можно написать здесь.</span><textarea class="iig-xv-prompt" placeholder="Например: девушка медленно поднимает взгляд, волосы движутся от ветра, камера плавно приближается. Слышно тихий дождь…"></textarea></label>
       <div class="iig-xv-grid">
-        <label>Модель<select class="iig-xv-model"><option value="grok-imagine-video">Grok Video · экономный</option><option value="grok-imagine-video-1.5">Grok Video 1.5 · качество</option></select></label>
-        <label>Длительность<select class="iig-xv-duration"><option>3</option><option selected>5</option><option>8</option><option>10</option><option>15</option></select></label>
-        <label>Качество<select class="iig-xv-resolution"><option value="480p">480p · дёшево</option><option value="720p" selected>720p · HD</option><option value="1080p">1080p · Full HD</option></select></label>
+        <label>Модель<select class="iig-xv-model"></select></label>
+        <label>Длительность<select class="iig-xv-duration"></select></label>
+        <label>Качество<select class="iig-xv-resolution"></select></label>
         <label class="iig-xv-audio"><input class="iig-xv-audio-input" type="checkbox" checked> 🔊 Генерировать звук</label>
       </div>
       <div class="iig-xv-cost"></div><div class="iig-xv-status"></div>
@@ -133,47 +217,55 @@ export function askXaiVideoOptions(initialPrompt = '') {
     </div>`;
     document.body.appendChild(wrap);
     wrap.showModal();
-    const promptBox = wrap.querySelector('.iig-xv-prompt');
-    const rememberedPrompt = localStorage.getItem('iig_xai_video_prompt') || '';
-    promptBox.value = String(initialPrompt || rememberedPrompt || '');
-    let remembered = {};
-    try { remembered = JSON.parse(localStorage.getItem('iig_xai_video_options') || '{}'); } catch {}
-    const model = wrap.querySelector('.iig-xv-model'), duration = wrap.querySelector('.iig-xv-duration'), resolution = wrap.querySelector('.iig-xv-resolution'), cost = wrap.querySelector('.iig-xv-cost');
-    if ([...model.options].some(o => o.value === remembered.model)) model.value = remembered.model;
-    if ([...duration.options].some(o => o.value === String(remembered.duration))) duration.value = String(remembered.duration);
-    if ([...resolution.options].some(o => o.value === remembered.resolution)) resolution.value = remembered.resolution;
-    if (typeof remembered.generateAudio === 'boolean') wrap.querySelector('.iig-xv-audio-input').checked = remembered.generateAudio;
-    const update = () => {
-      const isClassic = model.value === 'grok-imagine-video';
-      const opt1080 = resolution.querySelector('option[value="1080p"]');
-      opt1080.disabled = isClassic;
-      if (isClassic && resolution.value === '1080p') resolution.value = '720p';
-      const value = estimateXaiVideoCost({ model:model.value, duration:Number(duration.value), resolution:resolution.value });
-      cost.textContent = value == null ? 'Стоимость: зависит от модели' : `Примерная стоимость этого ролика: $${value.toFixed(2)}`;
+    const q = sel => wrap.querySelector(sel);
+    const provider=q('.iig-xv-provider'), promptBox=q('.iig-xv-prompt'), model=q('.iig-xv-model'), duration=q('.iig-xv-duration'), resolution=q('.iig-xv-resolution'), audio=q('.iig-xv-audio-input'), cost=q('.iig-xv-cost');
+    let remembered={}; try { remembered=JSON.parse(localStorage.getItem('iig_video_options')||'{}'); } catch {}
+    promptBox.value=String(initialPrompt || localStorage.getItem('iig_video_prompt') || '');
+    if (remembered.provider === 'veo' || remembered.provider === 'grok') provider.value=remembered.provider;
+    const fill=(el, items, selected)=>{ el.innerHTML=items.map(([v,l])=>`<option value="${v}">${l}</option>`).join(''); if([...el.options].some(o=>o.value===String(selected))) el.value=String(selected); };
+    const rebuild=()=>{
+      if(provider.value==='veo'){
+        fill(model,Object.entries(VEO_MODELS).map(([v,x])=>[v,x.label]), remembered.provider==='veo'?remembered.model:'veo-3.1-lite-generate-preview');
+        fill(duration,[[4,'4 сек'],[6,'6 сек'],[8,'8 сек']],remembered.provider==='veo'?remembered.duration:8);
+        fill(resolution,[['720p','720p · экономно'],['1080p','1080p · 8 сек'],['4k','4K · 8 сек']],remembered.provider==='veo'?remembered.resolution:'720p');
+        audio.checked=true; audio.disabled=true; audio.closest('label').title='Veo 3.1 генерирует аудио вместе с видео';
+      } else {
+        fill(model,Object.entries(VIDEO_MODELS).map(([v,x])=>[v,x.label]),remembered.provider==='grok'?remembered.model:'grok-imagine-video');
+        fill(duration,[[3,'3 сек'],[5,'5 сек'],[8,'8 сек'],[10,'10 сек'],[15,'15 сек']],remembered.provider==='grok'?remembered.duration:5);
+        fill(resolution,[['480p','480p · дёшево'],['720p','720p · HD'],['1080p','1080p · Full HD']],remembered.provider==='grok'?remembered.resolution:'720p');
+        audio.disabled=false; audio.checked=remembered.provider==='grok' && typeof remembered.generateAudio==='boolean'?remembered.generateAudio:true;
+      }
+      update();
     };
-    [model,duration,resolution].forEach(el => el.addEventListener('change', update)); update();
-    const finish = (value) => { wrap.remove(); resolve(value); };
-    wrap.querySelector('.iig-xv-cancel').onclick = () => finish(null);
-    wrap.addEventListener('click', e => { if (e.target === wrap) finish(null); });
-    wrap.addEventListener('cancel', e => { e.preventDefault(); finish(null); });
-    wrap.querySelector('.iig-xv-go').onclick = () => {
-      const value = {
-        prompt: promptBox.value.trim(),
-        model:model.value, duration:Number(duration.value), resolution:resolution.value,
-        generateAudio: wrap.querySelector('.iig-xv-audio-input').checked,
-      };
-      localStorage.setItem('iig_xai_video_prompt', value.prompt);
-      localStorage.setItem('iig_xai_video_options', JSON.stringify({
-        model:value.model, duration:value.duration, resolution:value.resolution, generateAudio:value.generateAudio,
-      }));
-      finish(value);
+    const update=()=>{
+      if(provider.value==='veo'){
+        const info=VEO_MODELS[model.value];
+        [...resolution.options].forEach(o=>o.disabled=!info?.rates?.[o.value]);
+        if(!info?.rates?.[resolution.value]) resolution.value='720p';
+        if(resolution.value==='1080p'||resolution.value==='4k') duration.value='8';
+        [...duration.options].forEach(o=>o.disabled=(resolution.value!=='720p'&&o.value!=='8'));
+        const v=estimateVeoVideoCost({model:model.value,duration:Number(duration.value),resolution:resolution.value});
+        cost.textContent=v==null?'Стоимость: зависит от модели':`Примерная стоимость Veo: $${v.toFixed(2)} · звук включён`;
+      } else {
+        const classic=model.value==='grok-imagine-video'; const o1080=resolution.querySelector('option[value="1080p"]'); if(o1080)o1080.disabled=classic; if(classic&&resolution.value==='1080p')resolution.value='720p';
+        [...duration.options].forEach(o=>o.disabled=false);
+        const v=estimateXaiVideoCost({model:model.value,duration:Number(duration.value),resolution:resolution.value});
+        cost.textContent=v==null?'Стоимость: зависит от модели':`Примерная стоимость Grok: $${v.toFixed(2)}`;
+      }
+    };
+    provider.addEventListener('change',()=>{remembered={provider:provider.value};rebuild();}); model.addEventListener('change',update); duration.addEventListener('change',update); resolution.addEventListener('change',update); rebuild();
+    const finish=value=>{try{wrap.close();}catch{} wrap.remove(); resolve(value);};
+    q('.iig-xv-cancel').onclick=()=>finish(null); wrap.addEventListener('click',e=>{if(e.target===wrap)finish(null)}); wrap.addEventListener('cancel',e=>{e.preventDefault();finish(null)});
+    q('.iig-xv-go').onclick=()=>{
+      const value={provider:provider.value,prompt:promptBox.value.trim(),model:model.value,duration:Number(duration.value),resolution:resolution.value,generateAudio:audio.checked,aspectRatio:'9:16'};
+      localStorage.setItem('iig_video_prompt',value.prompt); localStorage.setItem('iig_video_options',JSON.stringify(value)); finish(value);
     };
   });
 }
 export async function animateImageInteractive(imageSrc, onStatus = () => {}, initialPrompt = '') {
   const options = await askXaiVideoOptions(initialPrompt);
   if (!options) return null;
-  return generateXaiVideoFromImage(imageSrc, options, onStatus);
+  return options.provider === 'veo' ? generateVeoVideoFromImage(imageSrc, options, onStatus) : generateXaiVideoFromImage(imageSrc, options, onStatus);
 }
 
 
@@ -186,5 +278,7 @@ if (typeof globalThis !== 'undefined') {
     animateImageInteractive,
     generateXaiVideoFromImage,
     estimateXaiVideoCost,
+    generateVeoVideoFromImage,
+    estimateVeoVideoCost,
   };
 }
