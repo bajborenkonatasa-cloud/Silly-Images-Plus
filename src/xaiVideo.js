@@ -144,7 +144,7 @@ async function generateVeoVideoFromImage(imageSrc, options, onStatus = () => {})
     }],
     parameters: {
       aspectRatio: options.aspectRatio || '9:16',
-      durationSeconds: String(duration),
+      durationSeconds: Number(duration),
       resolution,
       personGeneration: 'allow_adult',
     },
