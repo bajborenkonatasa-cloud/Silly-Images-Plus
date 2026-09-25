@@ -140,13 +140,14 @@ async function generateVeoVideoFromImage(imageSrc, options, onStatus = () => {})
   const body = {
     instances: [{
       prompt,
-      image: { inlineData: { mimeType: parts.mimeType, data: parts.data } },
+      image: { mimeType: parts.mimeType, bytesBase64Encoded: parts.data },
     }],
     parameters: {
       aspectRatio: options.aspectRatio || '9:16',
       durationSeconds: String(duration),
       resolution,
       numberOfVideos: 1,
+      personGeneration: 'allow_adult',
     },
   };
   onStatus('Отправляю в Google Veo…');
