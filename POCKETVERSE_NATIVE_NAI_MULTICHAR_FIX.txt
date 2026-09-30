@@ -1,0 +1,1 @@
+Native NovelAI fix: official V4+/V5 structured BASE + Character Prompts from pipe syntax; model-aware count guard in Undesired Content; Human-Focus-style quality/anatomy UC.
