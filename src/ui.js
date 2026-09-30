@@ -2863,6 +2863,40 @@ function bindMediaHubNavigation() {
             title.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); } });
         });
     }
+
+    // ORDNUNG 3 — tidy long library/editor workspaces without touching their data.
+    const organizeWorkspace = (sectionId) => {
+        const section = document.querySelector(`[data-section-id="${sectionId}"]`);
+        if (!section || section.dataset.ordnung3 === '1') return;
+        section.dataset.ordnung3 = '1';
+        section.classList.add('iig-ordnung-workspace');
+
+        const headings = [...section.querySelectorAll('h3, h4, .iig-settings-group-title, .iig-section-title')];
+        headings.forEach(h => {
+            const txt=(h.textContent||'').trim().toLowerCase();
+            if (!/editor|редактор|основной референс|детали внешности|style library|библиотек/.test(txt)) return;
+            const parent=h.parentElement;
+            if (!parent || parent===section || h.dataset.ordnungToggle==='1') return;
+            h.dataset.ordnungToggle='1';
+            parent.classList.add('iig-ordnung-zone');
+            h.classList.add('iig-ordnung-zone-title');
+            h.setAttribute('role','button'); h.setAttribute('tabindex','0');
+            h.insertAdjacentHTML('beforeend','<i class="fa-solid fa-chevron-down iig-ordnung-zone-chevron"></i>');
+            const body=[...parent.children].filter(x=>x!==h);
+            const setOpen=open=>{
+                parent.classList.toggle('iig-ordnung-zone-open',open);
+                h.setAttribute('aria-expanded',String(open));
+                body.forEach(x=>x.classList.toggle('iig-ordnung-zone-hidden',!open));
+            };
+            setOpen(/library|библиотек/.test(txt));
+            const toggle=()=>setOpen(!parent.classList.contains('iig-ordnung-zone-open'));
+            h.addEventListener('click',toggle);
+            h.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();toggle();}});
+        });
+    };
+    organizeWorkspace('iig_characters_section');
+    organizeWorkspace('iig_references_section');
+    organizeWorkspace('iig_styles_section');
 }
 
 // ----- Public entry -----
