@@ -2811,22 +2811,58 @@ function bindMediaHubNavigation() {
     const pages = root.querySelector('.iig-hub-pages');
     if (!pages) return;
     const map = { generation: 'iig_api_section', characters: 'iig_characters_section', references: 'iig_references_section', styles: 'iig_styles_section', debug: 'iig_debug_section' };
-    const activate = (page) => {
+    const activate = (page, allowToggle = false) => {
         if (!map[page]) page = 'generation';
+        const samePage = pages.dataset.activePage === page && pages.dataset.hubClosed !== '1';
+        const shouldClose = allowToggle && samePage;
         pages.dataset.activePage = page;
-        root.querySelectorAll('.iig-media-hub-tab').forEach(btn => btn.classList.toggle('is-active', btn.dataset.iigPage === page));
+        pages.dataset.hubClosed = shouldClose ? '1' : '0';
+        root.classList.toggle('iig-hub-content-closed', shouldClose);
+        root.querySelectorAll('.iig-media-hub-tab').forEach(btn => {
+            btn.classList.toggle('is-active', !shouldClose && btn.dataset.iigPage === page);
+            btn.setAttribute('aria-pressed', String(!shouldClose && btn.dataset.iigPage === page));
+        });
         Object.entries(map).forEach(([key, id]) => {
             const section = document.querySelector(`[data-section-id="${id}"]`);
             if (!section) return;
-            section.classList.toggle('iig-hub-active-section', key === page);
-            if (key === page) section.open = true;
+            section.classList.toggle('iig-hub-active-section', !shouldClose && key === page);
+            if (!shouldClose && key === page) section.open = true;
         });
-        try { localStorage.setItem('iig_plus_hub_page', page); } catch {}
+        try {
+            localStorage.setItem('iig_plus_hub_page', page);
+            localStorage.setItem('iig_plus_hub_closed', shouldClose ? '1' : '0');
+        } catch {}
     };
-    root.querySelectorAll('.iig-media-hub-tab').forEach(btn => btn.addEventListener('click', () => activate(btn.dataset.iigPage)));
+    root.querySelectorAll('.iig-media-hub-tab').forEach(btn => btn.addEventListener('click', () => activate(btn.dataset.iigPage, true)));
     let initial = 'generation';
-    try { initial = localStorage.getItem('iig_plus_hub_page') || initial; } catch {}
+    let initiallyClosed = false;
+    try {
+        initial = localStorage.getItem('iig_plus_hub_page') || initial;
+        initiallyClosed = localStorage.getItem('iig_plus_hub_closed') === '1';
+    } catch {}
     activate(initial);
+    if (initiallyClosed) activate(initial, true);
+
+    const apiSection = document.querySelector('[data-section-id="iig_api_section"]');
+    if (apiSection) {
+        const groups = [...apiSection.querySelectorAll('.iig-settings-group')];
+        groups.forEach((group, index) => {
+            group.classList.add('iig-ordnung-group');
+            const title = group.querySelector(':scope > .iig-settings-group-title');
+            if (!title) return;
+            title.setAttribute('role', 'button'); title.setAttribute('tabindex', '0');
+            title.insertAdjacentHTML('beforeend', '<i class="fa-solid fa-chevron-down iig-ordnung-chevron"></i>');
+            const setOpen = (open) => { group.classList.toggle('is-open', open); title.setAttribute('aria-expanded', String(open)); };
+            setOpen(index === 1);
+            const toggle = () => {
+                const willOpen = !group.classList.contains('is-open');
+                groups.forEach(g => { g.classList.remove('is-open'); g.querySelector(':scope > .iig-settings-group-title')?.setAttribute('aria-expanded','false'); });
+                if (willOpen) setOpen(true);
+            };
+            title.addEventListener('click', toggle);
+            title.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); } });
+        });
+    }
 }
 
 // ----- Public entry -----
