@@ -2823,3 +2823,15 @@ body.iig-actions-hidden .iig-img-actions {
 #iig_settings_root .iig-ordnung-group.is-open>:not(.iig-settings-group-title){margin-left:12px;margin-right:12px}
 #iig_settings_root .iig-ordnung-group.is-open>:last-child{margin-bottom:12px}
 @media(max-width:700px){#iig_settings_root .iig-media-hub{margin:8px 4px 10px;padding:10px 8px}#iig_settings_root .iig-media-hub-status span{padding:6px;font-size:.78em}#iig_settings_root .iig-media-hub-tabs{gap:4px}#iig_settings_root .iig-media-hub-tab{min-height:48px;font-size:.95em}#iig_settings_root .iig-media-hub-tab span{font-size:.58em}}
+
+/* === ORDNUNG 3: compact libraries/editors === */
+#iig_settings_root .iig-ordnung-workspace{padding:4px 2px 12px}
+#iig_settings_root .iig-ordnung-zone{border:1px solid var(--SmartThemeBorderColor);border-radius:14px;background:rgba(255,255,255,.018);overflow:hidden;margin:8px 0}
+#iig_settings_root .iig-ordnung-zone-title{display:flex!important;align-items:center;gap:8px;cursor:pointer;user-select:none;min-height:46px;padding-left:10px;padding-right:10px}
+#iig_settings_root .iig-ordnung-zone-chevron{margin-left:auto;opacity:.62;transition:transform .18s ease}
+#iig_settings_root .iig-ordnung-zone-open>.iig-ordnung-zone-title .iig-ordnung-zone-chevron{transform:rotate(180deg)}
+#iig_settings_root .iig-ordnung-zone-hidden{display:none!important}
+#iig_settings_root [data-section-id="iig_characters_section"] button,
+#iig_settings_root [data-section-id="iig_references_section"] button,
+#iig_settings_root [data-section-id="iig_styles_section"] button{touch-action:manipulation}
+@media(max-width:700px){#iig_settings_root .iig-ordnung-workspace{padding-left:0;padding-right:0}}
