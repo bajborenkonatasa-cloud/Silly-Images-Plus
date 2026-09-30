@@ -2762,6 +2762,73 @@ function bindSettingsEvents() {
     updateVisibility();
 }
 
+
+function getMediaHubModelLabel(settings = getSettings()) {
+    if (settings.apiType === 'naistera') return normalizeNaisteraModel(settings.naisteraModel) || '—';
+    if (settings.apiType === 'novelai') return settings.novelaiModel || '—';
+    if (settings.apiType === 'gemini') return settings.geminiModel || settings.model || '—';
+    return settings.model || '—';
+}
+
+function getMediaHubProviderLabel(settings = getSettings()) {
+    const labels = {
+        naistera: 'Naistera', novelai: 'NovelAI Native', gemini: 'Banana / Gemini',
+        openai: 'OpenAI-compatible', openrouter: 'OpenRouter', electronhub: 'Electron Hub',
+        xai: 'xAI Imagine', a1111: 'A1111 / Forge',
+    };
+    return labels[settings.apiType] || settings.apiType || '—';
+}
+
+function buildMediaHubHtml(settings = getSettings()) {
+    const style = getSelectedStyle(settings);
+    return `
+        <div class="iig-media-hub">
+            <div class="iig-media-hub-head">
+                <div>
+                    <div class="iig-media-hub-title">✨ Silly Images Plus</div>
+                    <div class="hint">Один центр для генерации, персонажей, референсов и стилей.</div>
+                </div>
+                <span class="iig-media-hub-badge">${settings.enabled ? 'ON' : 'OFF'}</span>
+            </div>
+            <div class="iig-media-hub-status">
+                <span><b>Движок</b>${sanitizeForHtml(getMediaHubProviderLabel(settings))}</span>
+                <span><b>Модель</b>${sanitizeForHtml(getMediaHubModelLabel(settings))}</span>
+                <span><b>Стиль</b>${sanitizeForHtml(style?.name || 'Без стиля')}</span>
+            </div>
+            <div class="iig-media-hub-tabs" role="tablist" aria-label="Silly Images Plus sections">
+                <button type="button" class="iig-media-hub-tab is-active" data-iig-page="generation">✨<span>Генерация</span></button>
+                <button type="button" class="iig-media-hub-tab" data-iig-page="characters">👤<span>Персонажи</span></button>
+                <button type="button" class="iig-media-hub-tab" data-iig-page="references">🖼️<span>Референсы</span></button>
+                <button type="button" class="iig-media-hub-tab" data-iig-page="styles">🎨<span>Стили</span></button>
+                <button type="button" class="iig-media-hub-tab" data-iig-page="debug">🧪<span>Диагностика</span></button>
+            </div>
+        </div>`;
+}
+
+function bindMediaHubNavigation() {
+    const root = document.getElementById('iig_settings_root');
+    if (!root) return;
+    const pages = root.querySelector('.iig-hub-pages');
+    if (!pages) return;
+    const map = { generation: 'iig_api_section', characters: 'iig_characters_section', references: 'iig_references_section', styles: 'iig_styles_section', debug: 'iig_debug_section' };
+    const activate = (page) => {
+        if (!map[page]) page = 'generation';
+        pages.dataset.activePage = page;
+        root.querySelectorAll('.iig-media-hub-tab').forEach(btn => btn.classList.toggle('is-active', btn.dataset.iigPage === page));
+        Object.entries(map).forEach(([key, id]) => {
+            const section = document.querySelector(`[data-section-id="${id}"]`);
+            if (!section) return;
+            section.classList.toggle('iig-hub-active-section', key === page);
+            if (key === page) section.open = true;
+        });
+        try { localStorage.setItem('iig_plus_hub_page', page); } catch {}
+    };
+    root.querySelectorAll('.iig-media-hub-tab').forEach(btn => btn.addEventListener('click', () => activate(btn.dataset.iigPage)));
+    let initial = 'generation';
+    try { initial = localStorage.getItem('iig_plus_hub_page') || initial; } catch {}
+    activate(initial);
+}
+
 // ----- Public entry -----
 
 export function createSettingsUI() {
@@ -2786,11 +2853,14 @@ export function createSettingsUI() {
             </div>
             <div class="inline-drawer-content">
                 <div class="iig-settings">
-                    ${buildApiSettingsSectionHtml(settings)}
-                    ${buildStylesSettingsSectionHtml(settings)}
-                    ${buildCharactersSettingsSectionHtml(settings)}
-                    ${buildReferencesSettingsSectionHtml(settings)}
-                    ${buildDebugSettingsSectionHtml(settings)}
+                    ${buildMediaHubHtml(settings)}
+                    <div class="iig-hub-pages" data-active-page="generation">
+                        ${buildApiSettingsSectionHtml(settings)}
+                        ${buildCharactersSettingsSectionHtml(settings)}
+                        ${buildReferencesSettingsSectionHtml(settings)}
+                        ${buildStylesSettingsSectionHtml(settings)}
+                        ${buildDebugSettingsSectionHtml(settings)}
+                    </div>
                 </div>
             </div>
         </div>
@@ -2800,5 +2870,6 @@ export function createSettingsUI() {
     container.insertAdjacentHTML('beforeend', html);
 
     bindSettingsEvents();
+    bindMediaHubNavigation();
     renderStyleSettings();
 }

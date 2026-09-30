@@ -2245,7 +2245,23 @@ const NOVELAI_MODELS = [
     { id: 'nai-diffusion-furry-3', label: 'NAI Diffusion Furry V3' },
 ];
 
-const NOVELAI_DEFAULT_NEGATIVE_PROMPT = 'low quality, worst quality, bad quality, normal quality, jpeg artifacts, signature, watermark, username, artist name, logo, text, letters, blurry, ugly, deformed, disfigured, poor anatomy, bad anatomy, malformed hands, mutated hands, extra fingers, fewer fingers, poorly drawn hands, extra limbs, missing limbs, long neck, bad proportions, mutated, mutation, poorly drawn face, bad eyes, cross-eyed, asymmetrical eyes, cloned face, duplicate, multiple views, collage';
+const NOVELAI_DEFAULT_NEGATIVE_PROMPT = 'lowres, artistic error, film grain, scan artifacts, worst quality, bad quality, jpeg artifacts, very displeasing, chromatic aberration, dithering, halftone, screentone, multiple views, logo, too many watermarks, negative space, blank page, @_@, mismatched pupils, glowing eyes, bad anatomy, bad hands, extra fingers, fewer fingers, extra limbs, missing limbs, duplicate, cloned face';
+
+function buildNovelAiCountGuard(baseCaption = '') {
+    const b = String(baseCaption || '').toLowerCase();
+    const uc = ['crowd', 'background people'];
+    const gm = b.match(/(?:^|[,\s])(\d+)girls?\b/);
+    const bm = b.match(/(?:^|[,\s])(\d+)boys?\b/);
+    const om = b.match(/(?:^|[,\s])(\d+)others?\b/);
+    const g = gm ? Number(gm[1]) : 0, boy = bm ? Number(bm[1]) : 0, o = om ? Number(om[1]) : 0;
+    if (g === 1) uc.push('2girls','3girls','4girls','5girls','6+girls','multiple girls');
+    else if (g === 2) uc.push('3girls','4girls','5girls','6+girls','multiple girls');
+    else if (g === 3) uc.push('4girls','5girls','6+girls','multiple girls');
+    else if (g === 4) uc.push('5girls','6+girls','multiple girls');
+    if (boy === 0) uc.push('1boy','2boys','multiple boys');
+    if (o === 0) uc.push('1other','2others','multiple others');
+    return uc.join(', ');
+}
 
 const NOVELAI_REQUEST_TIMEOUT_MS = 120_000;
 const NOVELAI_IMAGE_ENDPOINT = 'https://image.novelai.net/ai/generate-image';
@@ -2457,35 +2473,25 @@ function splitNovelAiCharacterSegments(prompt) {
         .filter(Boolean);
 }
 
-// PocketVerse/Scene Blocks syntax: BASE | CHARACTER 1 | CHARACTER 2 ...
-// For NovelAI V4/V4.5/V5 these MUST become native base_caption + char_captions.
-// Keeping character blocks inside base_caption makes NovelAI see them twice and can
-// cause identity leakage / duplicated people.
-function buildNovelAiNativePrompt(prompt, model) {
+function buildNovelAiCharacterCaptions(prompt, references = []) {
     const segments = splitNovelAiCharacterSegments(prompt);
-    const basePrompt = segments[0] || String(prompt || '').trim();
-    const maxCharacters = String(model || '').startsWith('nai-diffusion-5') ? 22 : 6;
-    const characterSegments = segments.slice(1, 1 + maxCharacters);
-    return {
-        basePrompt,
-        characterSegments,
-        charCaptions: characterSegments.map((char_caption) => ({
-            char_caption,
-            centers: [{ x: 0.5, y: 0.5 }],
-        })),
-    };
-}
-
-function buildNovelAiCountGuard(basePrompt) {
-    const text = String(basePrompt || '').toLowerCase();
-    const m = text.match(/(?:^|[,\s])(\d+)girls?\b/);
-    if (!m) return '';
-    const n = Number(m[1]);
-    if (!Number.isFinite(n) || n < 1) return '';
-    const blocked = [];
-    for (let i = n + 1; i <= Math.min(n + 4, 9); i++) blocked.push(`${i}girls`);
-    blocked.push('extra girl', 'extra person', 'background people', 'crowd');
-    return blocked.join(', ');
+    const used = new Set();
+    const captions = [];
+    for (const ref of references) {
+        if (!['character', 'character&style'].includes(ref?.novelaiMode || 'character')) continue;
+        const label = String(ref?.novelaiCharacterLabel || '').trim();
+        const description = String(getReferenceDescription(ref) || '').trim();
+        let caption = '';
+        if (label && label !== '{{char}}' && label !== '{{user}}') {
+            const lower = label.toLowerCase();
+            const idx = segments.findIndex((seg, i) => !used.has(i) && seg.toLowerCase().includes(lower));
+            if (idx >= 0) { caption = segments[idx]; used.add(idx); }
+        }
+        if (!caption && description) caption = description;
+        if (!caption) continue;
+        captions.push({ char_caption: caption, centers: [{ x: 0.5, y: 0.5 }] });
+    }
+    return captions.slice(0, 6);
 }
 
 export class NovelAiProvider extends Provider {
@@ -2556,17 +2562,9 @@ export class NovelAiProvider extends Provider {
         // фигурных {}, которые усиливают) — обычная обёртка [STYLE: ...],
         // которую используют текстовые провайдеры (OpenAI/Gemini), здесь
         // случайно принижала бы вес всего style-блока с артистами.
+        const fullPrompt = buildFinalGenerationPrompt(prompt, style, options.matchedAdditionalRefs || [], settings, { wrapStyle: false });
+        iigLog('INFO', `NovelAI full prompt (${fullPrompt.length} chars): ${fullPrompt}`);
         const model = settings.model || NOVELAI_MODELS[0].id;
-        const nativePrompt = buildNovelAiNativePrompt(prompt, model);
-        // Style belongs ONLY to the base scene. Character blocks stay isolated.
-        const fullPrompt = buildFinalGenerationPrompt(nativePrompt.basePrompt, style, options.matchedAdditionalRefs || [], settings, { wrapStyle: false });
-        const countGuard = buildNovelAiCountGuard(nativePrompt.basePrompt);
-        const novelAiNegativePrompt = [NOVELAI_DEFAULT_NEGATIVE_PROMPT, countGuard].filter(Boolean).join(', ');
-        iigLog('INFO', `NovelAI BASE prompt (${fullPrompt.length} chars): ${fullPrompt}`);
-        if (nativePrompt.characterSegments.length) {
-            iigLog('INFO', `NovelAI native character segments (${nativePrompt.characterSegments.length}): ${nativePrompt.characterSegments.join(' || ')}`);
-        }
-        iigLog('INFO', `NovelAI UC: ${novelAiNegativePrompt}`);
         // V4/V4.5/V5 ждут структурированный v4_prompt/v4_negative_prompt в
         // дополнение к обычным полям — без него игнорируют часть промпта.
         const isV4Family = model.startsWith('nai-diffusion-4') || model.startsWith('nai-diffusion-5');
@@ -2581,7 +2579,7 @@ export class NovelAiProvider extends Provider {
             seed: Math.floor(Math.random() * 4294967295),
             n_samples: 1,
             noise_schedule: 'karras',
-            negative_prompt: novelAiNegativePrompt,
+            negative_prompt: NOVELAI_DEFAULT_NEGATIVE_PROMPT,
             qualityToggle: false,
             ucPreset: 0,
             dynamic_thresholding: false,
@@ -2648,20 +2646,36 @@ export class NovelAiProvider extends Provider {
             }
         }
 
-        const novelAiCharacterCaptions = isV4Family ? nativePrompt.charCaptions : [];
-        if (novelAiCharacterCaptions.length > 0) {
-            iigLog('INFO', `NovelAI Character Prompts: ${novelAiCharacterCaptions.length} native caption(s)`);
+        // Official NovelAI V4+ multi-character transport. PocketVerse/Scene Blocks
+        // use: BASE | CHARACTER 1 | CHARACTER 2 ... . Do not send that flattened
+        // string as base_caption: every segment after the first is a real Character Prompt.
+        const pipeSegments = splitNovelAiCharacterSegments(fullPrompt);
+        const structuredBase = pipeSegments[0] || fullPrompt;
+        let novelAiCharacterCaptions = pipeSegments.slice(1).map((caption) => ({
+            char_caption: caption,
+            centers: [{ x: 0.5, y: 0.5 }],
+        }));
+        // Legacy reference mapping is only a fallback when the prompt itself did not
+        // provide character segments.
+        if (!novelAiCharacterCaptions.length && isV45) {
+            novelAiCharacterCaptions = buildNovelAiCharacterCaptions(fullPrompt, references);
         }
+        if (novelAiCharacterCaptions.length > 0) {
+            iigLog('INFO', `NovelAI Character Prompts: ${novelAiCharacterCaptions.length} structured caption(s)`);
+        }
+        const countGuard = buildNovelAiCountGuard(structuredBase);
+        const nativeNegative = [NOVELAI_DEFAULT_NEGATIVE_PROMPT, countGuard].filter(Boolean).join(', ');
+        parameters.negative_prompt = nativeNegative;
 
         if (isV4Family) {
             parameters.v4_prompt = {
-                caption: { base_caption: fullPrompt, char_captions: novelAiCharacterCaptions },
+                caption: { base_caption: structuredBase, char_captions: novelAiCharacterCaptions },
                 use_coords: false,
                 use_order: true,
                 legacy_uc: false,
             };
             parameters.v4_negative_prompt = {
-                caption: { base_caption: novelAiNegativePrompt, char_captions: novelAiCharacterCaptions.map(() => ({ char_caption: '', centers: [{ x: 0.5, y: 0.5 }] })) },
+                caption: { base_caption: nativeNegative, char_captions: novelAiCharacterCaptions.map(() => ({ char_caption: '', centers: [{ x: 0.5, y: 0.5 }] })) },
                 use_coords: false,
                 use_order: false,
                 legacy_uc: false,
