@@ -1072,6 +1072,30 @@ export function renderIigBookMacro(settings = getSettings()) {
  * совместимости с текущей фактической версией ST. Если API недоступно —
  * тихо пропускает регистрацию (extension продолжает работать).
  */
+
+export function renderIigMediaMacro() {
+    const settings = getSettings();
+    if (!settings.enabled || !settings.mediaRouterEnabled || !settings.autonomousCharacterMedia) return '';
+
+    const freq = ['rare','natural','frequent'].includes(settings.autonomousMediaFrequency)
+        ? settings.autonomousMediaFrequency : 'natural';
+    const main = settings.mainImageRouteEnabled !== false;
+    const nai = settings.nativeNovelAiRouteEnabled === true;
+
+    return [
+        '[SILLY IMAGES PLUS · MEDIA INTENT]',
+        `Autonomous character media: ON. Frequency: ${freq}.`,
+        `Available routes: ${main ? 'MAIN' : ''}${main && nai ? ' + ' : ''}${nai ? 'NATIVE_NOVELAI' : '' || 'none'}.`,
+        'Images are optional, never mandatory. Do not spam them.',
+        'When it is natural for the character to send/show a picture, output exactly one image instruction in addition to the normal reply:',
+        '<img data-iig-instruction=\'{"prompt":"ENGLISH VISUAL PROMPT","aspect_ratio":"9:16"}\' src="[IMG:GEN]">',
+        'The prompt must describe only the visible image: exact visible subjects, appearance, current clothing, pose/action, expression/gaze, camera/framing, location/background and factual light.',
+        'For multiple people keep identities separate. Never add extra people. Never write UI/post/story/social-media interface unless the scene explicitly asks for visible UI.',
+        'For intimate/adult scenes, describe only what is actually established in the RP; do not escalate beyond the scene.',
+        'If no image is naturally warranted, output no image instruction at all.',
+    ].join('\\n');
+}
+
 export function registerIigBookMacro() {
     try {
         const context = SillyTavern.getContext();
@@ -1082,6 +1106,12 @@ export function registerIigBookMacro() {
                 'Inline Image Generation: renders additional references grouped by category for LLM hints.',
             );
             console.log('[IIG] Registered {{iig-book}} macro');
+            context.registerMacro(
+                'iig-media',
+                () => renderIigMediaMacro(),
+                'Silly Images Plus: compact autonomous media-intent contract for RP/preset blocks.',
+            );
+            console.log('[IIG] Registered {{iig-media}} macro');
         }
     } catch (error) {
         console.warn('[IIG] Failed to register {{iig-book}} macro:', error);

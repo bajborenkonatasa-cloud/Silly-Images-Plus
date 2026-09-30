@@ -272,6 +272,14 @@ export const defaultSettings = Object.freeze({
     enabled: true,
     externalBlocks: false,
     processUserMessages: false,
+    // MEDIA ROUTER — user remains in control. OFF means no autonomous media intent.
+    mediaRouterEnabled: false,
+    autonomousCharacterMedia: false,
+    autonomousMediaFrequency: 'natural', // rare | natural | frequent
+    mainImageRouteEnabled: true,
+    nativeNovelAiRouteEnabled: false,
+    nativeNovelAiFallbackOnSafety: true,
+    nativeNovelAiModel: 'nai-diffusion-5-curated',
     imageContextEnabled: false,
     imageContextCount: 1,
     imageActionsEnabled: true,

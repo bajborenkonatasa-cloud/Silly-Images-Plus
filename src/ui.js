@@ -166,6 +166,33 @@ function buildApiSettingsSectionHtml(settings = getSettings()) {
                 <span>${t`Also process user messages`}</span>
             </label>
 
+            <div class="iig-media-router-card">
+                <div class="iig-media-router-title">🧠 Media Router <span class="iig-router-badge">${settings.mediaRouterEnabled ? 'ON' : 'OFF'}</span></div>
+                <div class="hint">Управляемая автоматика: персонаж может сам прислать картинку, но только когда ты разрешила.</div>
+                <label class="checkbox_label">
+                    <input type="checkbox" id="iig_media_router_enabled" ${settings.mediaRouterEnabled ? 'checked' : ''}>
+                    <span>Включить Media Router</span>
+                </label>
+                <label class="checkbox_label">
+                    <input type="checkbox" id="iig_autonomous_character_media" ${settings.autonomousCharacterMedia ? 'checked' : ''}>
+                    <span>Персонажи могут сами присылать изображения</span>
+                </label>
+                <div class="flex-row">
+                    <label for="iig_autonomous_media_frequency">Частота</label>
+                    <select id="iig_autonomous_media_frequency" class="flex1">
+                        <option value="rare" ${settings.autonomousMediaFrequency === 'rare' ? 'selected' : ''}>Редко</option>
+                        <option value="natural" ${settings.autonomousMediaFrequency === 'natural' ? 'selected' : ''}>Естественно</option>
+                        <option value="frequent" ${settings.autonomousMediaFrequency === 'frequent' ? 'selected' : ''}>Чаще</option>
+                    </select>
+                </div>
+                <div class="iig-router-routes">
+                    <label class="checkbox_label"><input type="checkbox" id="iig_main_image_route" ${settings.mainImageRouteEnabled !== false ? 'checked' : ''}><span>🍌 Основной движок / текущий провайдер</span></label>
+                    <label class="checkbox_label"><input type="checkbox" id="iig_native_nai_route" ${settings.nativeNovelAiRouteEnabled ? 'checked' : ''}><span>🌙 Native NovelAI — второй маршрут</span></label>
+                    <label class="checkbox_label"><input type="checkbox" id="iig_native_nai_fallback" ${settings.nativeNovelAiFallbackOnSafety !== false ? 'checked' : ''}><span>↪ NovelAI как fallback при блокировке основного</span></label>
+                </div>
+                <div class="hint">Для автоматических фото добавь <b>{{iig-media}}</b> в твой RP/visual block. Когда Router OFF, макрос пустой и модель вообще не получает эту инструкцию.</div>
+            </div>
+
             <label class="checkbox_label">
                 <input type="checkbox" id="iig_image_actions_enabled" ${settings.imageActionsEnabled !== false ? 'checked' : ''}>
                 <span>${t`Show inline image action buttons (download / regenerate)`}</span>
@@ -1257,6 +1284,22 @@ function bindApiSectionEvents(settings, updateVisibility) {
 
     document.getElementById('iig_process_user_messages')?.addEventListener('change', (e) => {
         settings.processUserMessages = e.target.checked;
+        saveSettings();
+    });
+
+    const bindRouterCheck = (id, key) => document.getElementById(id)?.addEventListener('change', (e) => {
+        settings[key] = e.target.checked;
+        saveSettings();
+        const badge = document.querySelector('.iig-router-badge');
+        if (badge && key === 'mediaRouterEnabled') badge.textContent = e.target.checked ? 'ON' : 'OFF';
+    });
+    bindRouterCheck('iig_media_router_enabled', 'mediaRouterEnabled');
+    bindRouterCheck('iig_autonomous_character_media', 'autonomousCharacterMedia');
+    bindRouterCheck('iig_main_image_route', 'mainImageRouteEnabled');
+    bindRouterCheck('iig_native_nai_route', 'nativeNovelAiRouteEnabled');
+    bindRouterCheck('iig_native_nai_fallback', 'nativeNovelAiFallbackOnSafety');
+    document.getElementById('iig_autonomous_media_frequency')?.addEventListener('change', (e) => {
+        settings.autonomousMediaFrequency = e.target.value;
         saveSettings();
     });
 
