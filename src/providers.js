@@ -2564,7 +2564,7 @@ export class NovelAiProvider extends Provider {
         // случайно принижала бы вес всего style-блока с артистами.
         const fullPrompt = buildFinalGenerationPrompt(prompt, style, options.matchedAdditionalRefs || [], settings, { wrapStyle: false });
         iigLog('INFO', `NovelAI full prompt (${fullPrompt.length} chars): ${fullPrompt}`);
-        const model = settings.model || NOVELAI_MODELS[0].id;
+        const model = String(options?.modelOverride || settings.model || NOVELAI_MODELS[0].id);
         // V4/V4.5/V5 ждут структурированный v4_prompt/v4_negative_prompt в
         // дополнение к обычным полям — без него игнорируют часть промпта.
         const isV4Family = model.startsWith('nai-diffusion-4') || model.startsWith('nai-diffusion-5');

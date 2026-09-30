@@ -44,6 +44,7 @@ import {
 import {
     resolveActiveProvider,
     validateSettings,
+    NovelAiProvider,
 } from './providers.js';
 import {
     getReferenceDescription,
@@ -567,18 +568,64 @@ export async function generateImageWithRetry(prompt, style, onStatusUpdate, opti
                 : t`Generating...`;
             onStatusUpdate?.(statusText);
 
-            const generated = await provider.generate({
-                prompt,
-                style,
-                references,
-                options: {
+            let generated;
+            try {
+                generated = await provider.generate({
+                    prompt,
+                    style,
+                    references,
+                    options: {
+                        ...options,
+                        matchedAdditionalRefs,
+                        characterDescriptionPromptBlock,
+                        wrapStyle,
+                        signal: externalSignal,
+                    },
+                });
+            } catch (primaryError) {
+                const primaryKind = classifyProviderError(primaryError).kind;
+                const canNativeFallback = settings.mediaRouterEnabled === true
+                    && settings.nativeNovelAiRouteEnabled === true
+                    && settings.nativeNovelAiFallbackOnSafety !== false
+                    && settings.apiType !== 'novelai'
+                    && primaryKind === 'safety';
+                if (!canNativeFallback) throw primaryError;
+
+                onStatusUpdate?.(t`Main provider blocked the image. Trying Native NovelAI...`);
+                iigLog('WARN', `Media Router: MAIN blocked by safety; routing the same visual prompt to Native NovelAI.`);
+                const nativeProvider = new NovelAiProvider();
+                const nativeErrors = nativeProvider.validate(settings);
+                if (nativeErrors.length) {
+                    throw new ProviderError({
+                        message: `Native NovelAI fallback is enabled, but it is not configured: ${nativeErrors.join(' ')}`,
+                        code: 'native_novelai_not_configured',
+                        retryable: false,
+                        providerId: 'novelai',
+                        cause: primaryError,
+                    });
+                }
+                const nativeOptions = {
                     ...options,
                     matchedAdditionalRefs,
-                    characterDescriptionPromptBlock,
-                    wrapStyle,
+                    characterDescriptionPromptBlock: '',
+                    wrapStyle: false,
                     signal: externalSignal,
-                },
-            });
+                    modelOverride: settings.nativeNovelAiModel || 'nai-diffusion-5-curated',
+                };
+                const nativeRefs = await nativeProvider.collectReferences({
+                    prompt,
+                    messageId: options.messageId,
+                    matchedAdditionalRefs,
+                    providerOptions: nativeOptions,
+                });
+                generated = await nativeProvider.generate({
+                    prompt,
+                    style,
+                    references: nativeRefs,
+                    options: nativeOptions,
+                });
+                iigLog('INFO', `Media Router: Native NovelAI fallback succeeded.`);
+            }
 
             if (generated && typeof generated === 'object' && generated.kind === 'video') {
                 iigLog(

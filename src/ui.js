@@ -148,11 +148,6 @@ function buildApiSettingsSectionHtml(settings = getSettings()) {
         <div class="iig-settings-card">
             <div class="iig-settings-group">
                 <div class="iig-settings-group-title"><i class="fa-solid fa-toggle-on"></i><span>${t`Extension`}</span></div>
-            <div class="iig-settings-card-nested" id="iig_plus_migration_card" style="${hasOriginalSillyImagesSettings() ? '' : 'display:none;'}">
-                <div style="font-weight:700;margin-bottom:6px;"><i class="fa-solid fa-shield-halved"></i> Silly Images Plus</div>
-                <div class="hint" style="margin-bottom:8px;">Найдены сохранённые данные оригинального Silly Images. Импорт копирует их в Plus и НЕ изменяет оригинал: профили, API-настройки, стили, библиотеку персонажей, референсы и остальные параметры.</div>
-                <div id="iig_plus_import_original" class="menu_button"><i class="fa-solid fa-file-import"></i>&nbsp; Перенести всё из оригинального Silly Images</div>
-            </div>
             <label class="checkbox_label">
                 <input type="checkbox" id="iig_enabled" ${settings.enabled ? 'checked' : ''}>
                 <span>${t`Enable image generation`}</span>
