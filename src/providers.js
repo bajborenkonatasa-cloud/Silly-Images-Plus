@@ -1304,16 +1304,37 @@ async function parseOpenRouterError(response) {
         message = errField?.message || errField?.detail || raw || `HTTP ${response.status}`;
         code = errField?.code || errField?.type || String(response.status);
     }
-    return { message: String(message).slice(0, 800), code, status: response.status };
+    // Keep enough of OpenRouter's validation detail to diagnose model-specific
+    // Image API failures. Never log/request credentials or image bytes here.
+    const details = errField?.metadata || errField?.details || payload?.details || payload?.message || null;
+    let detailText = '';
+    if (details) {
+        try { detailText = typeof details === 'string' ? details : JSON.stringify(details); } catch (_e) { detailText = String(details); }
+    }
+    return { message: String(message).slice(0, 1600), detail: detailText.slice(0, 1600), code, status: response.status };
 }
 
 function openRouterParamAllows(modelCaps, key, value) {
     const descriptor = modelCaps?.supported_parameters?.[key];
     if (!descriptor) return false;
-    if (descriptor.type === 'enum' && Array.isArray(descriptor.values)) {
+    if (descriptor.type === 'enum' && Array.isArray(descriptor.values) && value != null) {
         return descriptor.values.includes(value);
     }
+    if (descriptor.type === 'range' && value != null && Number.isFinite(Number(value))) {
+        const n = Number(value);
+        if (Number.isFinite(Number(descriptor.min)) && n < Number(descriptor.min)) return false;
+        if (Number.isFinite(Number(descriptor.max)) && n > Number(descriptor.max)) return false;
+    }
     return true;
+}
+
+function openRouterCapsSummary(modelCaps) {
+    const params = modelCaps?.supported_parameters || {};
+    return Object.entries(params).map(([key, d]) => {
+        if (d?.type === 'enum' && Array.isArray(d.values)) return `${key}=[${d.values.join(',')}]`;
+        if (d?.type === 'range') return `${key}=${d.min ?? '?'}..${d.max ?? '?'}`;
+        return `${key}:${d?.type || 'yes'}`;
+    }).join(' ');
 }
 
 function openRouterImageDataUrl(result) {
@@ -1401,17 +1422,41 @@ export class OpenRouterProvider extends Provider {
                 'HTTP-Referer': window.location.origin,
                 'X-Title': 'SillyTavern Inline Image Generation',
             };
-            iigLog('INFO', `OpenRouter Image API request: model=${model} refs=${body.input_references?.length || 0} aspect=${body.aspect_ratio || '(provider default)'} resolution=${body.resolution || '(provider default)'}`);
+            const capSummary = openRouterCapsSummary(modelCaps);
+            iigLog('INFO', `OpenRouter Image API request: model=${model} refs=${body.input_references?.length || 0} aspect=${body.aspect_ratio || '(provider default)'} resolution=${body.resolution || '(provider default)'} caps=${capSummary || '(catalog unavailable)'}`);
 
-            let response;
-            try {
-                response = await fetchWithTimeout(url, { method: 'POST', headers, body: JSON.stringify(body) }, OPENROUTER_REQUEST_TIMEOUT_MS, options.signal || null);
-            } catch (error) {
-                throwAsProviderError(error, `OpenRouter ${model}`, 'openrouter', options.signal || null);
-            }
+            const sendImageRequest = async (requestBody) => {
+                try {
+                    return await fetchWithTimeout(url, { method: 'POST', headers, body: JSON.stringify(requestBody) }, OPENROUTER_REQUEST_TIMEOUT_MS, options.signal || null);
+                } catch (error) {
+                    throwAsProviderError(error, `OpenRouter ${model}`, 'openrouter', options.signal || null);
+                }
+            };
+
+            let response = await sendImageRequest(body);
             if (!response.ok) {
-                const { message, code, status } = await parseOpenRouterError(response);
-                throw new ProviderError({ message: `OpenRouter ${model} ${status} ${code}: ${message}`, code, status, retryable: isRetryableHttpStatus(status), providerId: 'openrouter' });
+                let parsed = await parseOpenRouterError(response);
+
+                // A stale/default UI control must never make an otherwise valid
+                // model unusable. On a 400 parameter validation error retry once
+                // with only required fields + references. References are preserved
+                // deliberately: silently dropping them would change an edit into
+                // unrelated text-to-image generation.
+                const hasOptionalControls = Object.prototype.hasOwnProperty.call(body, 'aspect_ratio') || Object.prototype.hasOwnProperty.call(body, 'resolution');
+                const looksLikeParameterError = parsed.status === 400 && /param|aspect|resolution|quality|format|invalid|unsupported/i.test(`${parsed.code || ''} ${parsed.message || ''} ${parsed.detail || ''}`);
+                if (hasOptionalControls && looksLikeParameterError) {
+                    const safeBody = { model, prompt: fullPrompt };
+                    if (body.input_references) safeBody.input_references = body.input_references;
+                    iigLog('WARN', `OpenRouter Image API rejected optional controls; retrying safely without aspect_ratio/resolution. model=${model}`);
+                    response = await sendImageRequest(safeBody);
+                    if (!response.ok) parsed = await parseOpenRouterError(response);
+                }
+
+                if (!response.ok) {
+                    const detail = parsed.detail ? ` | details: ${parsed.detail}` : '';
+                    iigLog('ERROR', `OpenRouter Image API failed: model=${model} status=${parsed.status} code=${parsed.code} message=${parsed.message}${detail} caps=${capSummary || '(catalog unavailable)'}`);
+                    throw new ProviderError({ message: `OpenRouter ${model} ${parsed.status} ${parsed.code}: ${parsed.message}${detail}`, code: parsed.code, status: parsed.status, retryable: isRetryableHttpStatus(parsed.status), providerId: 'openrouter' });
+                }
             }
             const result = await response.json();
             const imageUrl = openRouterImageDataUrl(result);
