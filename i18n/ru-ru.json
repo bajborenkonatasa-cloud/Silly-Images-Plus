@@ -18,7 +18,7 @@
     "API type": "Тип API",
     "OpenAI-compatible (/v1/images/generations)": "OpenAI-совместимый (/v1/images/generations)",
     "Gemini-compatible (nano-banana)": "Gemini-совместимый (nano-banana)",
-    "OpenRouter (chat/completions)": "OpenRouter (chat/completions)",
+    "OpenRouter (Unified Image API)": "OpenRouter (Unified Image API)",
     "Electron Hub (/v1/images/*)": "Electron Hub (/v1/images/*)",
     "Naistera (naistera.org)": "Naistera (naistera.org)",
     "AUTOMATIC1111 / Forge (local)": "AUTOMATIC1111 / Forge (локальный)",
