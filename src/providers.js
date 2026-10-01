@@ -1284,23 +1284,16 @@ export class GeminiProvider extends Provider {
     }
 }
 
-// ----- OpenRouter (chat completions с modalities=image) -----
+// ----- OpenRouter (Unified Image API; chat fallback for compatible proxies) -----
 
 const OPENROUTER_REQUEST_TIMEOUT_MS = 600_000;
 const OPENROUTER_DEFAULT_ENDPOINT = 'https://openrouter.ai/api/v1';
+const openRouterImageModelCaps = new Map();
 
-/**
- * Парсит ошибку от OpenRouter. Формат — как у OpenAI (`{ error: { message, code, type } }`),
- * но иногда приходит просто `{ error: string }`.
- */
 async function parseOpenRouterError(response) {
     const raw = await response.text().catch(() => '');
     let payload = null;
-    try {
-        payload = raw ? JSON.parse(raw) : null;
-    } catch (_e) {
-        payload = null;
-    }
+    try { payload = raw ? JSON.parse(raw) : null; } catch (_e) { payload = null; }
     const errField = payload?.error;
     let message;
     let code;
@@ -1314,23 +1307,37 @@ async function parseOpenRouterError(response) {
     return { message: String(message).slice(0, 800), code, status: response.status };
 }
 
+function openRouterParamAllows(modelCaps, key, value) {
+    const descriptor = modelCaps?.supported_parameters?.[key];
+    if (!descriptor) return false;
+    if (descriptor.type === 'enum' && Array.isArray(descriptor.values)) {
+        return descriptor.values.includes(value);
+    }
+    return true;
+}
+
+function openRouterImageDataUrl(result) {
+    const first = Array.isArray(result?.data) ? result.data[0] : null;
+    if (!first) return null;
+    if (typeof first.b64_json === 'string' && first.b64_json) {
+        const mime = first.media_type || 'image/png';
+        return `data:${mime};base64,${first.b64_json}`;
+    }
+    if (typeof first.url === 'string' && first.url) return first.url;
+    return null;
+}
+
 export class OpenRouterProvider extends Provider {
     get id() { return 'openrouter'; }
     get displayName() { return 'OpenRouter'; }
 
     get capabilities() {
-        return {
-            ...super.capabilities,
-            referencesFormat: 'dataUrl',
-        };
+        return { ...super.capabilities, referencesFormat: 'dataUrl' };
     }
 
     validate(settings) {
         const errors = [];
-        if (!settings.apiKey) {
-            errors.push(t`API key is not configured`);
-        }
-        // Endpoint имеет дефолт (https://openrouter.ai/api/v1), поэтому не требуем.
+        if (!settings.apiKey) errors.push(t`API key is not configured`);
         return errors;
     }
 
@@ -1339,15 +1346,9 @@ export class OpenRouterProvider extends Provider {
         const caps = getOpenRouterCapabilities(settings.model);
         const maxRefs = caps.maxReferences;
         const refs = [];
-
-        const userRefs = settings.sendUserAvatar
-            ? await collectCharacterLibraryReferences('user', 'dataUrl', settings)
-            : [];
-        const characterRefs = settings.sendCharAvatar
-            ? await collectCharacterLibraryReferences('char', 'dataUrl', settings)
-            : [];
+        const userRefs = settings.sendUserAvatar ? await collectCharacterLibraryReferences('user', 'dataUrl', settings) : [];
+        const characterRefs = settings.sendCharAvatar ? await collectCharacterLibraryReferences('char', 'dataUrl', settings) : [];
         appendAvatarReferenceGroups(refs, [userRefs, characterRefs]);
-
         for (const ref of matchedAdditionalRefs) {
             if (refs.length >= maxRefs) break;
             const imagePath = normalizeStoredImagePath(ref.imagePath);
@@ -1355,189 +1356,128 @@ export class OpenRouterProvider extends Provider {
             const d = await imageUrlToDataUrl(imagePath);
             if (d) refs.push(makeReferenceObject(d, additionalReferenceDescription(ref, settings), 'additional'));
         }
-
         if (settings.imageContextEnabled) {
             const contextCount = normalizeImageContextCount(settings.imageContextCount);
             const contextRefs = await collectPreviousContextReferences(messageId, 'dataUrl', contextCount);
             refs.push(...contextRefs.map((ref) => makeReferenceObject(ref, '', 'context')));
         }
-
-        if (refs.length > maxRefs) {
-            refs.length = maxRefs;
-        }
+        if (refs.length > maxRefs) refs.length = maxRefs;
         return refs;
     }
 
     async generate({ prompt, style, references = [], options = {} }) {
         const settings = getSettings();
-        const url = buildGenerationUrl(settings, '/chat/completions');
-
+        const endpoint = (String(getEffectiveEndpoint(settings) || settings.endpoint || OPENROUTER_DEFAULT_ENDPOINT).trim() || OPENROUTER_DEFAULT_ENDPOINT).replace(/\/$/, '');
         const model = settings.model;
-        const caps = getOpenRouterCapabilities(model);
-        const isGeminiOR = isGeminiOpenRouterModel(model);
-
-        // aspect_ratio: валидируем по caps.
-        let aspectRatio = options.aspectRatio || settings.aspectRatio || '1:1';
-        if (!caps.aspectRatios.includes(aspectRatio)) {
-            iigLog('WARN', `Invalid aspect_ratio "${aspectRatio}" for ${model}, falling back`);
-            aspectRatio = caps.aspectRatios.includes(settings.aspectRatio) ? settings.aspectRatio : '1:1';
-        }
-
-        // image_size: только для Gemini 3 pro / 3.1 flash (список не null).
-        let imageSize = null;
-        if (Array.isArray(caps.imageSizes)) {
-            imageSize = options.imageSize || settings.imageSize || '1K';
-            if (!caps.imageSizes.includes(imageSize)) {
-                iigLog('WARN', `Invalid image_size "${imageSize}" for ${model}, falling back`);
-                imageSize = caps.imageSizes.includes(settings.imageSize) ? settings.imageSize : '1K';
-            }
-        }
-
         let fullPrompt = buildFinalGenerationPrompt(prompt, style, options.matchedAdditionalRefs || [], settings);
-
         if (references.length > 0) {
             const refInstruction = getEffectiveRefInstruction(settings);
-            if (refInstruction) {
-                fullPrompt = `${refInstruction}\n\n${fullPrompt}`;
-            }
+            if (refInstruction) fullPrompt = `${refInstruction}\n\n${fullPrompt}`;
         }
 
-        // messages.content: строка если нет refs, массив частей — если есть.
-        // Для image-conditioned chat providers отправляем пары description → image,
-        // затем основной prompt последним chunk'ом.
+        // Official OpenRouter: use the dedicated Unified Image API. This is the
+        // canonical route for Muse, Seedream, MAI, Recraft, GPT Image, Gemini, etc.
+        if (isOpenRouterAiHost(endpoint)) {
+            const url = settings.rawEndpoint ? endpoint : `${endpoint}/images`;
+            const modelCaps = openRouterImageModelCaps.get(model) || null;
+            const body = { model, prompt: fullPrompt };
+
+            const aspectRatio = options.aspectRatio || settings.aspectRatio || '1:1';
+            if (openRouterParamAllows(modelCaps, 'aspect_ratio', aspectRatio)) body.aspect_ratio = aspectRatio;
+
+            const resolution = options.imageSize || settings.imageSize || '1K';
+            if (openRouterParamAllows(modelCaps, 'resolution', resolution)) body.resolution = resolution;
+
+            if (references.length > 0 && openRouterParamAllows(modelCaps, 'input_references', null)) {
+                body.input_references = references.map(ref => ({
+                    type: 'image_url',
+                    image_url: { url: getReferenceImage(ref) },
+                }));
+            }
+
+            const headers = {
+                'Authorization': `Bearer ${settings.apiKey}`,
+                'Content-Type': 'application/json',
+                'HTTP-Referer': window.location.origin,
+                'X-Title': 'SillyTavern Inline Image Generation',
+            };
+            iigLog('INFO', `OpenRouter Image API request: model=${model} refs=${body.input_references?.length || 0} aspect=${body.aspect_ratio || '(provider default)'} resolution=${body.resolution || '(provider default)'}`);
+
+            let response;
+            try {
+                response = await fetchWithTimeout(url, { method: 'POST', headers, body: JSON.stringify(body) }, OPENROUTER_REQUEST_TIMEOUT_MS, options.signal || null);
+            } catch (error) {
+                throwAsProviderError(error, `OpenRouter ${model}`, 'openrouter', options.signal || null);
+            }
+            if (!response.ok) {
+                const { message, code, status } = await parseOpenRouterError(response);
+                throw new ProviderError({ message: `OpenRouter ${model} ${status} ${code}: ${message}`, code, status, retryable: isRetryableHttpStatus(status), providerId: 'openrouter' });
+            }
+            const result = await response.json();
+            const imageUrl = openRouterImageDataUrl(result);
+            if (!imageUrl) {
+                iigLog('ERROR', 'OpenRouter Image API no-image response:', result);
+                throw new ProviderError({ message: `No image in OpenRouter Image API response. Body keys: ${Object.keys(result || {}).join(',')}`, code: 'no_image', retryable: false, providerId: 'openrouter' });
+            }
+            if (imageUrl.startsWith('data:')) return imageUrl;
+            const dataUrl = await imageUrlToDataUrl(imageUrl);
+            if (!dataUrl) throw new ProviderError({ message: `Failed to fetch image from URL: ${imageUrl}`, code: 'image_fetch_failed', retryable: true, providerId: 'openrouter' });
+            return dataUrl;
+        }
+
+        // Compatibility fallback for third-party OpenRouter-like endpoints.
+        const url = buildGenerationUrl(settings, '/chat/completions');
+        const caps = getOpenRouterCapabilities(model);
+        const isGeminiOR = isGeminiOpenRouterModel(model);
         let content;
         if (references.length > 0) {
             const parts = [];
             for (const [idx, ref] of references.slice(0, caps.maxReferences).entries()) {
                 const label = referenceTextLabel(idx + 1, getReferenceDescription(ref));
-                if (label) {
-                    parts.push({ type: 'text', text: label });
-                }
-                parts.push({
-                    type: 'image_url',
-                    image_url: { url: getReferenceImage(ref) },
-                });
+                if (label) parts.push({ type: 'text', text: label });
+                parts.push({ type: 'image_url', image_url: { url: getReferenceImage(ref) } });
             }
             parts.push({ type: 'text', text: fullPrompt });
             content = parts;
-        } else {
-            content = fullPrompt;
-        }
-
-        // modalities: Gemini отдаёт и текст и картинку; Flux/Sourceful — только картинку.
-        const modalities = isGeminiOR ? ['image', 'text'] : ['image'];
-
-        const body = {
-            model,
-            messages: [{ role: 'user', content }],
-            modalities,
-            // llmrouter и часть совместимых сервисов отдают картинку CDN-ссылкой
-            // по умолчанию; этот флаг просит base64. Real openrouter.ai и так
-            // base64 шлёт, флаг ему ничего не ломает.
-            enable_base64_output: true,
-        };
-
-        const imageConfig = { aspect_ratio: aspectRatio };
-        if (imageSize) imageConfig.image_size = imageSize;
-        body.image_config = imageConfig;
-
-        iigLog(
-            'INFO',
-            `OpenRouter request: model=${model} kind=${classifyOpenRouterModel(model)} refs=${references.length} aspect=${aspectRatio} size=${imageSize || '(default)'} modalities=${modalities.join(',')}`
-        );
-
-        const headers = {
-            'Authorization': `Bearer ${settings.apiKey}`,
-            'Content-Type': 'application/json',
-        };
-        // X-Title / HTTP-Referer нужны только настоящему openrouter.ai
-        // (для аттрибуции в их leaderboard'е). 3rd-party OpenRouter-совместимые
-        // сервисы часто не разрешают X-Title в CORS — добавим только если
-        // endpoint реально на openrouter.ai.
-        if (isOpenRouterAiHost(url)) {
-            headers['HTTP-Referer'] = window.location.origin;
-            headers['X-Title'] = 'SillyTavern Inline Image Generation';
-        }
-
-        const signal = options.signal || null;
+        } else content = fullPrompt;
+        const body = { model, messages: [{ role: 'user', content }], modalities: isGeminiOR ? ['image', 'text'] : ['image'], enable_base64_output: true };
+        const headers = { 'Authorization': `Bearer ${settings.apiKey}`, 'Content-Type': 'application/json' };
         let response;
-        try {
-            response = await fetchWithTimeout(url, {
-                method: 'POST',
-                headers,
-                body: JSON.stringify(body),
-            }, OPENROUTER_REQUEST_TIMEOUT_MS, signal);
-        } catch (error) {
-            throwAsProviderError(error, `OpenRouter ${model}`, 'openrouter', signal);
-        }
-
+        try { response = await fetchWithTimeout(url, { method: 'POST', headers, body: JSON.stringify(body) }, OPENROUTER_REQUEST_TIMEOUT_MS, options.signal || null); }
+        catch (error) { throwAsProviderError(error, `OpenRouter-compatible ${model}`, 'openrouter', options.signal || null); }
         if (!response.ok) {
             const { message, code, status } = await parseOpenRouterError(response);
-            throw new ProviderError({
-                message: `OpenRouter ${model} ${status} ${code}: ${message}`,
-                code,
-                status,
-                retryable: isRetryableHttpStatus(status),
-                providerId: 'openrouter',
-            });
+            throw new ProviderError({ message: `OpenRouter-compatible ${model} ${status} ${code}: ${message}`, code, status, retryable: isRetryableHttpStatus(status), providerId: 'openrouter' });
         }
-
         const result = await response.json();
         const message = result?.choices?.[0]?.message;
         const imageUrl = extractOpenRouterImage(message);
-
-        if (!imageUrl || typeof imageUrl !== 'string') {
-            iigLog('ERROR', 'OpenRouter no-image response body:', result);
-            throw new ProviderError({
-                message: `No image in OpenRouter response. Body keys: ${Object.keys(result || {}).join(',')}; message keys: ${Object.keys(message || {}).join(',')}`,
-                code: 'no_image',
-                retryable: false,
-                providerId: 'openrouter',
-            });
-        }
-
-        if (imageUrl.startsWith('data:')) {
-            return imageUrl;
-        }
+        if (!imageUrl) throw new ProviderError({ message: 'No image in OpenRouter-compatible chat response.', code: 'no_image', retryable: false, providerId: 'openrouter' });
+        if (imageUrl.startsWith('data:')) return imageUrl;
         const dataUrl = await imageUrlToDataUrl(imageUrl);
-        if (!dataUrl) {
-            throw new ProviderError({
-                message: `Failed to fetch image from URL: ${imageUrl}`,
-                code: 'image_fetch_failed',
-                retryable: true,
-                providerId: 'openrouter',
-            });
-        }
+        if (!dataUrl) throw new ProviderError({ message: `Failed to fetch image from URL: ${imageUrl}`, code: 'image_fetch_failed', retryable: true, providerId: 'openrouter' });
         return dataUrl;
     }
 
-    /**
-     * Свой fetchModels: фильтры `input_modalities=image,text` + `output_modalities=image`.
-     */
     async fetchModels() {
         const settings = getSettings();
-        const endpoint = (String(settings.endpoint || '').trim() || OPENROUTER_DEFAULT_ENDPOINT)
-            .replace(/\/$/, '');
+        const endpoint = (String(getEffectiveEndpoint(settings) || settings.endpoint || OPENROUTER_DEFAULT_ENDPOINT).trim() || OPENROUTER_DEFAULT_ENDPOINT).replace(/\/$/, '');
+        if (!settings.apiKey) { console.warn('[IIG] OpenRouter fetchModels: API key not set'); return []; }
 
-        if (!settings.apiKey) {
-            console.warn('[IIG] OpenRouter fetchModels: API key not set');
-            return [];
-        }
-
-        const url = `${endpoint}/models?input_modalities=image%2Ctext&output_modalities=image`;
-        const response = await fetch(url, {
-            method: 'GET',
-            headers: {
-                'Authorization': `Bearer ${settings.apiKey}`,
-            },
-        });
-
-        if (!response.ok) {
-            throw new Error(`HTTP ${response.status}`);
-        }
-
+        // Official OpenRouter gets ONLY models supported by POST /images.
+        // This prevents the UI from advertising chat-only image models that fail here.
+        const official = isOpenRouterAiHost(endpoint);
+        const url = official
+            ? `${endpoint}/images/models`
+            : `${endpoint}/models?input_modalities=image%2Ctext&output_modalities=image`;
+        const response = await fetch(url, { method: 'GET', headers: { 'Authorization': `Bearer ${settings.apiKey}` } });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const data = await response.json();
         const models = Array.isArray(data?.data) ? data.data : [];
+        if (official) {
+            openRouterImageModelCaps.clear();
+            for (const m of models) if (m?.id) openRouterImageModelCaps.set(m.id, m);
+        }
         return models.map(m => m.id).filter(Boolean);
     }
 }
