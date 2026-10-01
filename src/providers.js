@@ -1311,7 +1311,9 @@ async function parseOpenRouterError(response) {
     if (details) {
         try { detailText = typeof details === 'string' ? details : JSON.stringify(details); } catch (_e) { detailText = String(details); }
     }
-    return { message: String(message).slice(0, 1600), detail: detailText.slice(0, 1600), code, status: response.status };
+    const requestId = response.headers.get('x-request-id') || response.headers.get('request-id') || response.headers.get('cf-ray') || '';
+    const payloadKeys = payload && typeof payload === 'object' ? Object.keys(payload).join(',') : '';
+    return { message: String(message).slice(0, 3000), detail: detailText.slice(0, 3000), code, status: response.status, requestId, payloadKeys };
 }
 
 function openRouterParamAllows(modelCaps, key, value) {
@@ -1423,6 +1425,23 @@ export class OpenRouterProvider extends Provider {
                 'X-Title': 'SillyTavern Inline Image Generation',
             };
             const capSummary = openRouterCapsSummary(modelCaps);
+            const safeBodySummary = {
+                model,
+                promptChars: fullPrompt.length,
+                referenceCount: body.input_references?.length || 0,
+                aspect_ratio: body.aspect_ratio ?? null,
+                resolution: body.resolution ?? null,
+                bodyKeys: Object.keys(body),
+            };
+            const safeCaps = modelCaps ? {
+                id: modelCaps.id || model,
+                supported_parameters: modelCaps.supported_parameters ?? null,
+                input_modalities: modelCaps.input_modalities ?? null,
+                output_modalities: modelCaps.output_modalities ?? null,
+            } : null;
+            iigLog('INFO', `OpenRouter Image API target: ${url}`);
+            iigLog('INFO', 'OpenRouter Image API SAFE request summary:', safeBodySummary);
+            iigLog('INFO', 'OpenRouter Image API SAFE model capabilities:', safeCaps);
             iigLog('INFO', `OpenRouter Image API request: model=${model} refs=${body.input_references?.length || 0} aspect=${body.aspect_ratio || '(provider default)'} resolution=${body.resolution || '(provider default)'} caps=${capSummary || '(catalog unavailable)'}`);
 
             const sendImageRequest = async (requestBody) => {
@@ -1454,8 +1473,11 @@ export class OpenRouterProvider extends Provider {
 
                 if (!response.ok) {
                     const detail = parsed.detail ? ` | details: ${parsed.detail}` : '';
-                    iigLog('ERROR', `OpenRouter Image API failed: model=${model} status=${parsed.status} code=${parsed.code} message=${parsed.message}${detail} caps=${capSummary || '(catalog unavailable)'}`);
-                    throw new ProviderError({ message: `OpenRouter ${model} ${parsed.status} ${parsed.code}: ${parsed.message}${detail}`, code: parsed.code, status: parsed.status, retryable: isRetryableHttpStatus(parsed.status), providerId: 'openrouter' });
+                    const req = parsed.requestId ? ` | request-id: ${parsed.requestId}` : '';
+                    const keys = parsed.payloadKeys ? ` | response-keys: ${parsed.payloadKeys}` : '';
+                    iigLog('ERROR', `OpenRouter Image API failed: model=${model} endpoint=${url} status=${parsed.status} code=${parsed.code} message=${parsed.message}${detail}${req}${keys} caps=${capSummary || '(catalog unavailable)'}`);
+                    iigLog('ERROR', 'OpenRouter Image API SAFE failed-request summary:', safeBodySummary);
+                    throw new ProviderError({ message: `OpenRouter ${model} ${parsed.status} ${parsed.code}: ${parsed.message}${detail}${req}`, code: parsed.code, status: parsed.status, retryable: isRetryableHttpStatus(parsed.status), providerId: 'openrouter' });
                 }
             }
             const result = await response.json();
