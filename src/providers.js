@@ -1411,9 +1411,16 @@ export class OpenRouterProvider extends Provider {
             const resolution = options.imageSize || settings.imageSize || '1K';
             if (openRouterParamAllows(modelCaps, 'resolution', resolution)) body.resolution = resolution;
 
-            if (references.length > 0 && openRouterParamAllows(modelCaps, 'input_references', null)) {
+            // Muse Image accepts reference-image conditioning, but OpenRouter's current
+            // /images/models record may expose an empty supported_parameters map for it.
+            // Treat Muse as a narrow catalog-metadata exception; all other models still
+            // obey the advertised input_references capability and limits.
+            const museReferenceFallback = model === 'meta/muse-image';
+            if (references.length > 0 && (openRouterParamAllows(modelCaps, 'input_references', null) || museReferenceFallback)) {
                 // OpenRouter's image catalog declares per-model reference limits.
                 // Respect them before routing (e.g. Ming Design Layer requires exactly 1).
+                // Muse fallback has no catalog range, so forward the collected refs and
+                // let the provider enforce its actual limit.
                 const refDescriptor = modelCaps?.supported_parameters?.input_references;
                 const minRefs = refDescriptor?.type === 'range' && Number.isFinite(Number(refDescriptor.min)) ? Number(refDescriptor.min) : 0;
                 const maxRefs = refDescriptor?.type === 'range' && Number.isFinite(Number(refDescriptor.max)) ? Number(refDescriptor.max) : references.length;
@@ -1424,6 +1431,9 @@ export class OpenRouterProvider extends Provider {
                         type: 'image_url',
                         image_url: { url: getReferenceImage(ref) },
                     }));
+                    if (museReferenceFallback && !refDescriptor) {
+                        iigLog('INFO', `OpenRouter Image API Muse reference fallback: forwarding ${selectedRefs.length} reference(s) despite missing catalog descriptor.`);
+                    }
                     if (selectedRefs.length < references.length) {
                         iigLog('INFO', `OpenRouter Image API clamped references for ${model}: ${references.length} -> ${selectedRefs.length} (catalog ${minRefs}..${maxRefs})`);
                     }
