@@ -1412,10 +1412,24 @@ export class OpenRouterProvider extends Provider {
             if (openRouterParamAllows(modelCaps, 'resolution', resolution)) body.resolution = resolution;
 
             if (references.length > 0 && openRouterParamAllows(modelCaps, 'input_references', null)) {
-                body.input_references = references.map(ref => ({
-                    type: 'image_url',
-                    image_url: { url: getReferenceImage(ref) },
-                }));
+                // OpenRouter's image catalog declares per-model reference limits.
+                // Respect them before routing (e.g. Ming Design Layer requires exactly 1).
+                const refDescriptor = modelCaps?.supported_parameters?.input_references;
+                const minRefs = refDescriptor?.type === 'range' && Number.isFinite(Number(refDescriptor.min)) ? Number(refDescriptor.min) : 0;
+                const maxRefs = refDescriptor?.type === 'range' && Number.isFinite(Number(refDescriptor.max)) ? Number(refDescriptor.max) : references.length;
+                const allowedCount = Math.max(0, Math.min(references.length, maxRefs));
+                const selectedRefs = references.slice(0, allowedCount);
+                if (selectedRefs.length >= minRefs && selectedRefs.length > 0) {
+                    body.input_references = selectedRefs.map(ref => ({
+                        type: 'image_url',
+                        image_url: { url: getReferenceImage(ref) },
+                    }));
+                    if (selectedRefs.length < references.length) {
+                        iigLog('INFO', `OpenRouter Image API clamped references for ${model}: ${references.length} -> ${selectedRefs.length} (catalog ${minRefs}..${maxRefs})`);
+                    }
+                } else if (minRefs > selectedRefs.length) {
+                    iigLog('WARN', `OpenRouter Image API model ${model} requires at least ${minRefs} reference(s), but only ${selectedRefs.length} are available.`);
+                }
             }
 
             const headers = {
@@ -1477,7 +1491,12 @@ export class OpenRouterProvider extends Provider {
                     const keys = parsed.payloadKeys ? ` | response-keys: ${parsed.payloadKeys}` : '';
                     iigLog('ERROR', `OpenRouter Image API failed: model=${model} endpoint=${url} status=${parsed.status} code=${parsed.code} message=${parsed.message}${detail}${req}${keys} caps=${capSummary || '(catalog unavailable)'}`);
                     iigLog('ERROR', 'OpenRouter Image API SAFE failed-request summary:', safeBodySummary);
-                    throw new ProviderError({ message: `OpenRouter ${model} ${parsed.status} ${parsed.code}: ${parsed.message}${detail}${req}`, code: parsed.code, status: parsed.status, retryable: isRetryableHttpStatus(parsed.status), providerId: 'openrouter' });
+                    const errorText = `${parsed.code || ''} ${parsed.message || ''} ${parsed.detail || ''}`.toLowerCase();
+                    // A second identical request cannot fix moderation, exhausted quota,
+                    // or deterministic capability/parameter validation failures.
+                    const deterministicFailure = parsed.status === 400
+                        || /safety|content management policy|content policy|moderation|quota|billing|insufficient_quota|requested parameter|input_references|unsupported parameter/.test(errorText);
+                    throw new ProviderError({ message: `OpenRouter ${model} ${parsed.status} ${parsed.code}: ${parsed.message}${detail}${req}`, code: parsed.code, status: parsed.status, retryable: !deterministicFailure && isRetryableHttpStatus(parsed.status), providerId: 'openrouter' });
                 }
             }
             const result = await response.json();
