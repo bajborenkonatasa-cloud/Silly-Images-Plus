@@ -1350,12 +1350,22 @@ function bindApiSectionEvents(settings, updateVisibility) {
                 endpointInput.value = settings.endpoint;
             }
         }
-        // Изоляция ключей: убираем ключ старого провайдера, достаём ключ
-        // нового — строго до любого сетевого запроса ниже.
-        switchApiKeyForType(settings, settings.apiType, nextApiType);
+        // Isolate both API keys and selected models per provider. Previously
+        // `settings.model` was shared by Gemini/xAI/OpenRouter/etc., so switching
+        // providers could silently keep a text-only or foreign model selected.
+        const previousApiType = settings.apiType;
+        settings.modelsByApiType = settings.modelsByApiType || {};
+        if (previousApiType && previousApiType !== 'naistera' && previousApiType !== 'novelai') {
+            settings.modelsByApiType[previousApiType] = String(settings.model || '');
+        }
+        switchApiKeyForType(settings, previousApiType, nextApiType);
         const genericKeyInput = /** @type {HTMLInputElement|null} */ (document.getElementById('iig_api_key'));
         if (genericKeyInput) genericKeyInput.value = settings.apiKey;
         settings.apiType = nextApiType;
+        if (nextApiType !== 'naistera' && nextApiType !== 'novelai') {
+            settings.model = String(settings.modelsByApiType[nextApiType] || '');
+            syncModelInputs(settings.model);
+        }
         saveSettings();
         updateVisibility();
 
@@ -1465,6 +1475,10 @@ function bindApiSectionEvents(settings, updateVisibility) {
 
     const modelApplyChange = (value) => {
         settings.model = value;
+        if (settings.apiType !== 'naistera' && settings.apiType !== 'novelai') {
+            settings.modelsByApiType = settings.modelsByApiType || {};
+            settings.modelsByApiType[settings.apiType] = String(value || '');
+        }
         saveSettings();
         syncModelInputs(value);
         updateVisibility();
@@ -1496,9 +1510,16 @@ function bindApiSectionEvents(settings, updateVisibility) {
             const models = await fetchModels();
             if (select) {
                 let current = isNaistera ? normalizeNaisteraModel(settings.naisteraModel) : (settings.model || '');
-                if (isNaistera && models.length > 0 && !models.includes(current)) {
+                if (models.length > 0 && !models.includes(current)) {
                     current = models[0];
-                    settings.naisteraModel = current;
+                    if (isNaistera) {
+                        settings.naisteraModel = current;
+                    } else {
+                        settings.model = current;
+                        settings.modelsByApiType = settings.modelsByApiType || {};
+                        settings.modelsByApiType[settings.apiType] = current;
+                        syncModelInputs(current);
+                    }
                     saveSettings();
                 }
                 const provider = resolveActiveProvider(settings);

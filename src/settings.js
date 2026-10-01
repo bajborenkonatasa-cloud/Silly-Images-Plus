@@ -309,6 +309,9 @@ export const defaultSettings = Object.freeze({
     apiKeys: {},
     keyIsolationMigrated: false,
     model: '',
+    // Keep the selected model isolated per provider. A single shared `model`
+    // caused stale Gemini/xAI/OpenRouter models to leak across provider switches.
+    modelsByApiType: {},
     size: '1024x1024',
     quality: 'standard',
     maxRetries: 0, // No auto-retry - user clicks error image to retry manually
