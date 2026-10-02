@@ -2845,3 +2845,12 @@ body.iig-actions-hidden .iig-img-actions {
 #iig_settings_root .iig-router-badge{margin-left:auto;font-size:.72em;padding:3px 8px;border:1px solid currentColor;border-radius:999px;opacity:.82}
 #iig_settings_root .iig-router-routes{margin-top:8px;padding-top:7px;border-top:1px solid rgba(255,255,255,.08)}
 #iig_settings_root .iig-media-router-card .hint{margin:5px 0 8px;line-height:1.35}
+
+
+/* plus.8: prompt library tabs */
+.iig-prompt-library-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 8px;
+}

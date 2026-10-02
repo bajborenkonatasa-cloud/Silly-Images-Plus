@@ -1,0 +1,1 @@
+plus.8: Added upstream-style Negative Prompt Library on top of plus.7. Preserved custom OpenRouter Unified/Muse fallbacks, isolated NovelAI key, Media Router/native fallback, Precise Reference V4.5, and custom reference metadata. Active negative library applies only to Native NovelAI or Naistera NovelAI models; disabling it falls back to provider-specific API field.
