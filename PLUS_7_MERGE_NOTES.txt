@@ -1,0 +1,14 @@
+Silly Images Plus 2.3.3-plus.7
+
+Merged selectively from upstream without replacing Plus-specific transports:
+- Added isolated src/novelai.js constants/presets.
+- Added Native NovelAI resolution presets + custom width/height.
+- Added Steps, CFG, CFG Rescale, Sampler, Noise Schedule, Seed, Skip CFG above sigma controls.
+- Added editable Native NovelAI negative prompt; empty keeps Plus built-in default.
+- Preserved Plus OpenRouter Unified Image API / Muse reference fallbacks.
+- Preserved NovelAI API-key isolation.
+- Preserved Media Router and autonomous media settings.
+- Preserved V4.5 Precise Reference metadata and controls.
+- Preserved Plus native BASE | CHARACTER 1 | CHARACTER 2 transport (already present before upstream merge).
+
+Not merged yet: upstream Negative Prompt Library tabs/E2E suite. They touch shared Styles UI extensively and should be ported separately after this build is smoke-tested.
