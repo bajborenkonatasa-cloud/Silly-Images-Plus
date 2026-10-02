@@ -78,6 +78,7 @@ import {
 } from './references.js';
 import { fetchModels, resolveActiveProvider, getActiveProviderMaxReferences, A1111_RESOLUTION_PRESETS } from './providers.js';
 import { applyImageActionsStyle } from './imageActions.js';
+import { NOVELAI_SAMPLERS, NOVELAI_NOISE_SCHEDULES, NOVELAI_RESOLUTION_PRESETS } from './novelai.js';
 import { t } from './i18n.js';
 import { buildCharacterLibraryBodyHtml, bindCharacterLibraryEvents } from './characterLibraryUi.js';
 // Относительный путь: /scripts/extensions/third-party/sillyimages/src/ui.js → /scripts/popup.js
@@ -258,6 +259,22 @@ function buildApiSettingsSectionHtml(settings = getSettings()) {
                 <div class="flex-row"><label>Default Strength</label><input id="iig_novelai_precise_strength" class="flex1" type="range" min="0" max="1" step="0.05" value="${Number.isFinite(Number(settings.novelaiPreciseReferenceStrength)) ? Number(settings.novelaiPreciseReferenceStrength) : 0.65}"><span id="iig_novelai_precise_strength_value">${Number.isFinite(Number(settings.novelaiPreciseReferenceStrength)) ? Number(settings.novelaiPreciseReferenceStrength).toFixed(2) : '0.65'}</span></div>
                 <div class="flex-row"><label>Default Fidelity</label><input id="iig_novelai_precise_fidelity" class="flex1" type="range" min="0" max="1" step="0.05" value="${Number.isFinite(Number(settings.novelaiPreciseReferenceFidelity)) ? Number(settings.novelaiPreciseReferenceFidelity) : 0.75}"><span id="iig_novelai_precise_fidelity_value">${Number.isFinite(Number(settings.novelaiPreciseReferenceFidelity)) ? Number(settings.novelaiPreciseReferenceFidelity).toFixed(2) : '0.75'}</span></div>
                 <div id="iig_novelai_precise_status" class="hint">V4.5: Precise Reference готов. V5: референсы не отправляются.</div>
+            </div>
+            <div id="iig_novelai_generation_panel" class="iig-novelai-precise-panel ${settings.apiType === 'novelai' ? '' : 'iig-hidden'}">
+                <div class="iig-novelai-precise-title"><strong>🎛️ NovelAI generation</strong><span>upstream controls</span></div>
+                <div class="flex-row"><label>Resolution</label><select id="iig_novelai_resolution" class="flex1">
+                    ${NOVELAI_RESOLUTION_PRESETS.map(p => `<option value="${p.width}x${p.height}" ${Number(settings.novelaiWidth)===p.width && Number(settings.novelaiHeight)===p.height ? 'selected' : ''}>${p.label}</option>`).join('')}
+                    <option value="custom" ${NOVELAI_RESOLUTION_PRESETS.some(p => Number(settings.novelaiWidth)===p.width && Number(settings.novelaiHeight)===p.height) ? '' : 'selected'}>Custom</option>
+                </select><div></div></div>
+                <div class="flex-row"><label>Width × Height</label><div class="flex1"><input id="iig_novelai_width" class="text_pole" type="number" min="64" max="2048" step="64" value="${Number(settings.novelaiWidth)||832}" style="width:46%"> × <input id="iig_novelai_height" class="text_pole" type="number" min="64" max="2048" step="64" value="${Number(settings.novelaiHeight)||1216}" style="width:46%"></div><div></div></div>
+                <div class="flex-row"><label>Steps</label><input id="iig_novelai_steps" class="text_pole flex1" type="number" min="1" max="50" step="1" value="${Number(settings.novelaiSteps)||23}"><div></div></div>
+                <div class="flex-row"><label>CFG / Rescale</label><div class="flex1"><input id="iig_novelai_cfg" class="text_pole" type="number" min="0" max="10" step="0.1" value="${Number(settings.novelaiCfgScale)??5}" style="width:46%"> / <input id="iig_novelai_cfg_rescale" class="text_pole" type="number" min="0" max="1" step="0.01" value="${Number(settings.novelaiCfgRescale)||0}" style="width:46%"></div><div></div></div>
+                <div class="flex-row"><label>Sampler</label><select id="iig_novelai_sampler" class="flex1">${Object.entries(NOVELAI_SAMPLERS).map(([id,label]) => `<option value="${id}" ${settings.novelaiSampler===id?'selected':''}>${label}</option>`).join('')}</select><div></div></div>
+                <div class="flex-row"><label>Noise schedule</label><select id="iig_novelai_noise" class="flex1">${NOVELAI_NOISE_SCHEDULES.map(id => `<option value="${id}" ${settings.novelaiNoiseSchedule===id?'selected':''}>${id}</option>`).join('')}</select><div></div></div>
+                <div class="flex-row"><label>Seed</label><input id="iig_novelai_seed" class="text_pole flex1" type="number" min="-1" max="4294967295" step="1" value="${Number.isFinite(Number(settings.novelaiSeed))?Number(settings.novelaiSeed):-1}"><div></div></div>
+                <div class="flex-row"><label>Skip CFG above sigma</label><input id="iig_novelai_skip_cfg" class="text_pole flex1" type="number" min="0" max="100" step="0.1" value="${Number(settings.novelaiSkipCfgAboveSigma)||0}"><div></div></div>
+                <div class="flex-row"><label>Negative prompt</label><textarea id="iig_novelai_negative_prompt" class="text_pole textarea_compact flex1" rows="3" placeholder="Leave empty = built-in safe default">${sanitizeForHtml(settings.novelaiNegativePrompt || '')}</textarea><div></div></div>
+                <p class="hint">V5 ignores Noise schedule / Skip CFG. Prompt syntax BASE | CHARACTER 1 | CHARACTER 2 is sent as native NovelAI character captions.</p>
             </div>
 
             <div class="flex-row ${settings.apiType === 'naistera' ? 'iig-hidden' : ''}" id="iig_model_row">
@@ -1434,6 +1451,33 @@ function bindApiSectionEvents(settings, updateVisibility) {
         if (out) out.textContent = Number(e.target.value).toFixed(2);
         saveSettings();
     });
+
+    const saveNovelAiNumber = (id, key, min, max) => {
+        document.getElementById(id)?.addEventListener('change', (e) => {
+            const n = Number(e.target.value);
+            if (!Number.isFinite(n)) return;
+            settings[key] = Math.max(min, Math.min(max, n));
+            saveSettings();
+        });
+    };
+    document.getElementById('iig_novelai_resolution')?.addEventListener('change', (e) => {
+        const preset = NOVELAI_RESOLUTION_PRESETS.find(p => `${p.width}x${p.height}` === e.target.value);
+        if (!preset) return;
+        settings.novelaiWidth = preset.width; settings.novelaiHeight = preset.height;
+        const w = document.getElementById('iig_novelai_width'); const h = document.getElementById('iig_novelai_height');
+        if (w) w.value = String(preset.width); if (h) h.value = String(preset.height);
+        saveSettings();
+    });
+    saveNovelAiNumber('iig_novelai_width', 'novelaiWidth', 64, 2048);
+    saveNovelAiNumber('iig_novelai_height', 'novelaiHeight', 64, 2048);
+    saveNovelAiNumber('iig_novelai_steps', 'novelaiSteps', 1, 50);
+    saveNovelAiNumber('iig_novelai_cfg', 'novelaiCfgScale', 0, 10);
+    saveNovelAiNumber('iig_novelai_cfg_rescale', 'novelaiCfgRescale', 0, 1);
+    saveNovelAiNumber('iig_novelai_seed', 'novelaiSeed', -1, 4294967295);
+    saveNovelAiNumber('iig_novelai_skip_cfg', 'novelaiSkipCfgAboveSigma', 0, 100);
+    document.getElementById('iig_novelai_sampler')?.addEventListener('change', (e) => { settings.novelaiSampler = e.target.value; saveSettings(); });
+    document.getElementById('iig_novelai_noise')?.addEventListener('change', (e) => { settings.novelaiNoiseSchedule = e.target.value; saveSettings(); });
+    document.getElementById('iig_novelai_negative_prompt')?.addEventListener('input', (e) => { settings.novelaiNegativePrompt = String(e.target.value || ''); saveSettings(); });
 
     document.getElementById('iig_api_key')?.addEventListener('change', () => {
         if (settings.apiType === 'naistera') {
@@ -2679,6 +2723,7 @@ function buildUpdateVisibility(settings) {
         document.getElementById('iig_raw_endpoint_row')?.classList.toggle('iig-hidden', isNovelAi);
         document.getElementById('iig_novelai_hint')?.classList.toggle('iig-hidden', !isNovelAi);
         document.getElementById('iig_novelai_precise_panel')?.classList.toggle('iig-hidden', !isNovelAi);
+        document.getElementById('iig_novelai_generation_panel')?.classList.toggle('iig-hidden', !isNovelAi);
         document.getElementById('iig_image_context_section')?.classList.toggle('iig-hidden', !refsSupported);
         document.getElementById('iig_image_context_count_row')?.classList.toggle('iig-hidden', !(refsSupported && settings.imageContextEnabled));
         document.getElementById('iig_additional_refs_section')?.classList.toggle('iig-hidden', !refsSupported);

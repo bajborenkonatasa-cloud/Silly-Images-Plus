@@ -37,6 +37,7 @@ import {
     isRetryableHttpStatus,
 } from './utils.js';
 import { buildFinalGenerationPrompt } from './parser.js';
+import { NOVELAI_SAMPLERS, NOVELAI_NOISE_SCHEDULES } from './novelai.js';
 import { t } from './i18n.js';
 import {
     collectCharacterLibraryReferences,
@@ -2607,19 +2608,19 @@ export class NovelAiProvider extends Provider {
 
         const parameters = {
             params_version: 4,
-            width: 832,
-            height: 1216,
-            scale: 5,
-            sampler: 'k_euler_ancestral',
-            steps: 28,
-            seed: Math.floor(Math.random() * 4294967295),
+            width: Number(settings.novelaiWidth) || 832,
+            height: Number(settings.novelaiHeight) || 1216,
+            scale: Number.isFinite(Number(settings.novelaiCfgScale)) ? Number(settings.novelaiCfgScale) : 5,
+            sampler: Object.hasOwn(NOVELAI_SAMPLERS, settings.novelaiSampler) ? settings.novelaiSampler : 'k_euler_ancestral',
+            steps: Number.isFinite(Number(settings.novelaiSteps)) ? Math.max(1, Math.min(50, Number(settings.novelaiSteps))) : 23,
+            seed: Number(settings.novelaiSeed) >= 0 ? Number(settings.novelaiSeed) : Math.floor(Math.random() * 4294967295),
             n_samples: 1,
-            noise_schedule: 'karras',
+            noise_schedule: NOVELAI_NOISE_SCHEDULES.includes(settings.novelaiNoiseSchedule) ? settings.novelaiNoiseSchedule : 'karras',
             negative_prompt: NOVELAI_DEFAULT_NEGATIVE_PROMPT,
             qualityToggle: false,
             ucPreset: 0,
             dynamic_thresholding: false,
-            cfg_rescale: 0.5,
+            cfg_rescale: Number.isFinite(Number(settings.novelaiCfgRescale)) ? Math.max(0, Math.min(1, Number(settings.novelaiCfgRescale))) : 0,
             sm: false,
             sm_dyn: false,
             legacy_v3_extend: false,
@@ -2700,8 +2701,14 @@ export class NovelAiProvider extends Provider {
             iigLog('INFO', `NovelAI Character Prompts: ${novelAiCharacterCaptions.length} structured caption(s)`);
         }
         const countGuard = buildNovelAiCountGuard(structuredBase);
-        const nativeNegative = [NOVELAI_DEFAULT_NEGATIVE_PROMPT, countGuard].filter(Boolean).join(', ');
+        const configuredNegative = String(settings.novelaiNegativePrompt || '').trim();
+        const nativeNegative = [configuredNegative || NOVELAI_DEFAULT_NEGATIVE_PROMPT, countGuard].filter(Boolean).join(', ');
         parameters.negative_prompt = nativeNegative;
+        if (model.startsWith('nai-diffusion-5-')) {
+            delete parameters.noise_schedule;
+        } else if (Number(settings.novelaiSkipCfgAboveSigma) > 0) {
+            parameters.skip_cfg_above_sigma = Number(settings.novelaiSkipCfgAboveSigma);
+        }
 
         if (isV4Family) {
             parameters.v4_prompt = {
