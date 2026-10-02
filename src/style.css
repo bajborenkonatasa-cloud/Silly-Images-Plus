@@ -2805,3 +2805,12 @@ body.iig-actions-hidden .iig-img-actions {
 .iig-hub-pages>.iig-section.iig-hub-active-section>.iig-section-body{padding:8px 0 0}
 .iig-hub-pages>.iig-section.iig-hub-active-section{border:0;background:transparent;overflow:visible}
 @media(max-width:700px){.iig-media-hub{padding:10px 8px}.iig-media-hub-status{grid-template-columns:1fr}.iig-media-hub-tabs{gap:4px}.iig-media-hub-tab{min-height:46px;font-size:.92em}.iig-media-hub-tab span{font-size:.62em}}
+
+
+/* plus.8: prompt library tabs */
+.iig-prompt-library-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 8px;
+}

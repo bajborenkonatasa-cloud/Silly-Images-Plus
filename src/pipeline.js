@@ -17,6 +17,7 @@ import {
     normalizeNaisteraModel,
     isNaisteraNovelAIModel,
     normalizeNaisteraCharacterDescriptionsMode,
+    getEffectiveNegativePrompt,
 } from './settings.js';
 import {
     saveImageToFile,
@@ -276,8 +277,10 @@ function buildRequestSnapshot({ prompt, style, references, matchedAdditionalRefs
         lorebookName: String(ref?._lorebookName || ''),
         reason: ref?._matchReason || null,
     }));
-    const negativePrompt = settings.apiType === 'naistera' && provider?.supportsNegativePrompt(settings)
-        ? String(options?.negativePrompt ?? settings.naisteraNegativePrompt ?? '').trim()
+    const negativePrompt = provider?.supportsNegativePrompt(settings)
+        ? String(options?.negativePrompt ?? getEffectiveNegativePrompt(
+            settings.apiType === 'novelai' ? settings.novelaiNegativePrompt : settings.naisteraNegativePrompt, settings,
+        )).trim()
         : '';
 
     return {

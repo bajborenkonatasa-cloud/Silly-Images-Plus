@@ -286,6 +286,8 @@ export const defaultSettings = Object.freeze({
     imageActionsOpacity: 80,
     styles: [],
     activeStyleId: '',
+    negativePrompts: [],
+    activeNegativePromptId: '',
     apiType: 'openai', // 'openai' | 'xai' | 'gemini' | 'openrouter' | 'electronhub' | 'naistera' | 'a1111'
     endpoint: '',
     /**
@@ -885,30 +887,39 @@ export function getEffectiveEndpoint(settings = getSettings()) {
 
 // ----- Styles -----
 
-export function ensureStyles(settings = getSettings()) {
-    if (!Array.isArray(settings.styles)) {
-        settings.styles = [];
+export function getPromptLibraryActiveKey(kind = 'styles') {
+    return kind === 'negativePrompts' ? 'activeNegativePromptId' : 'activeStyleId';
+}
+
+function promptLibraryDefaultName(kind, index) {
+    return kind === 'negativePrompts' ? t`Negative prompt ${index + 1}` : t`Style ${index + 1}`;
+}
+
+export function ensureStyles(settings = getSettings(), kind = 'styles') {
+    if (!Array.isArray(settings[kind])) {
+        settings[kind] = [];
     }
 
-    settings.styles = settings.styles.map((style, index) => ({
+    settings[kind] = settings[kind].map((style, index) => ({
         id: String(style?.id || `iig-style-${Date.now()}-${index}-${Math.random().toString(36).slice(2, 8)}`),
-        name: String(style?.name || t`Style ${index + 1}`).trim() || t`Style ${index + 1}`,
+        name: String(style?.name || '').trim() || promptLibraryDefaultName(kind, index),
         value: String(style?.value || '').trim(),
     }));
 
-    if (!settings.styles.some((style) => style.id === settings.activeStyleId)) {
-        settings.activeStyleId = '';
+    const activeKey = getPromptLibraryActiveKey(kind);
+    if (!settings[kind].some((style) => style.id === settings[activeKey])) {
+        settings[activeKey] = '';
     }
 
-    return settings.styles;
+    return settings[kind];
 }
 
-export function createStyle(name = '') {
+export function createStyle(name = '', kind = 'styles') {
     const settings = getSettings();
-    const styles = ensureStyles(settings);
+    const styles = ensureStyles(settings, kind);
     const style = {
         id: `iig-style-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        name: String(name || '').trim() || t`Style ${styles.length + 1}`,
+        name: String(name || '').trim() || promptLibraryDefaultName(kind, styles.length),
         value: '',
     };
     styles.push(style);
@@ -920,9 +931,9 @@ export function getActiveStyle(settings = getSettings()) {
     return styles.find((style) => style.id === settings.activeStyleId) || null;
 }
 
-export function updateStyle(styleId, patch) {
+export function updateStyle(styleId, patch, kind = 'styles') {
     const settings = getSettings();
-    const style = ensureStyles(settings).find((item) => item.id === styleId);
+    const style = ensureStyles(settings, kind).find((item) => item.id === styleId);
     if (!style) {
         return null;
     }
@@ -937,19 +948,29 @@ export function updateStyle(styleId, patch) {
     return style;
 }
 
-export function removeStyle(styleId) {
+export function removeStyle(styleId, kind = 'styles') {
     const settings = getSettings();
-    const styles = ensureStyles(settings);
+    const styles = ensureStyles(settings, kind);
     const index = styles.findIndex((item) => item.id === styleId);
     if (index === -1) {
         return false;
     }
 
     styles.splice(index, 1);
-    if (settings.activeStyleId === styleId) {
-        settings.activeStyleId = '';
+    const activeKey = getPromptLibraryActiveKey(kind);
+    if (settings[activeKey] === styleId) {
+        settings[activeKey] = '';
     }
     return true;
+}
+
+export function getEffectiveNegativePrompt(fallback = '', settings = getSettings()) {
+    const isNovelAI = settings.apiType === 'novelai'
+        || (settings.apiType === 'naistera' && isNaisteraNovelAIModel(settings.naisteraModel));
+    const active = isNovelAI
+        ? ensureStyles(settings, 'negativePrompts').find(item => item.id === settings.activeNegativePromptId)
+        : null;
+    return String(active ? active.value : fallback).trim();
 }
 
 // ----- Last request snapshot (in-memory, NOT persisted) -----

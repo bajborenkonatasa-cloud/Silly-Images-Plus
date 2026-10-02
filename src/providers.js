@@ -25,6 +25,7 @@ import {
     normalizeNaisteraVideoFrequency,
     getEffectiveEndpoint,
     getEffectiveRefInstruction,
+    getEffectiveNegativePrompt,
 } from './settings.js';
 import {
     normalizeStoredImagePath,
@@ -1905,7 +1906,7 @@ export class NaisteraProvider extends Provider {
             aspect_ratio: aspectRatio,
             model,
         };
-        const negativePrompt = String(options.negativePrompt ?? settings.naisteraNegativePrompt ?? '').trim();
+        const negativePrompt = String(options.negativePrompt ?? getEffectiveNegativePrompt(settings.naisteraNegativePrompt, { ...settings, naisteraModel: model })).trim();
         if (negativePrompt && this.supportsNegativePrompt({ ...settings, naisteraModel: model })) {
             body.negative_prompt = negativePrompt;
         }
@@ -2701,7 +2702,7 @@ export class NovelAiProvider extends Provider {
             iigLog('INFO', `NovelAI Character Prompts: ${novelAiCharacterCaptions.length} structured caption(s)`);
         }
         const countGuard = buildNovelAiCountGuard(structuredBase);
-        const configuredNegative = String(settings.novelaiNegativePrompt || '').trim();
+        const configuredNegative = String(options.negativePrompt ?? getEffectiveNegativePrompt(settings.novelaiNegativePrompt, settings)).trim();
         const nativeNegative = [configuredNegative || NOVELAI_DEFAULT_NEGATIVE_PROMPT, countGuard].filter(Boolean).join(', ');
         parameters.negative_prompt = nativeNegative;
         if (model.startsWith('nai-diffusion-5-')) {
