@@ -239,7 +239,15 @@ function buildRequestSnapshot({ prompt, style, references, matchedAdditionalRefs
         style,
         matchedAdditionalRefs || [],
         settings,
-        { wrapStyle },
+        {
+            wrapStyle,
+            // Keep diagnostics identical to the real request: NovelAI transports do
+            // not receive the generic trailing reference-description dump.
+            includeAdditionalRefDescriptions: !(
+                settings.apiType === 'novelai'
+                || (settings.apiType === 'naistera' && isNaisteraNovelAIModel(settings.naisteraModel))
+            ),
+        },
     );
     if (settings.apiType === 'openai' || settings.apiType === 'xai' || settings.apiType === 'electronhub') {
         const avatarDescriptions = buildAvatarReferenceSnapshotBlock(references, settings);

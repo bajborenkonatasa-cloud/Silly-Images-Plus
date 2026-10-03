@@ -1877,12 +1877,19 @@ export class NaisteraProvider extends Provider {
         const wantsVideoTest = Boolean(options.videoTestMode);
         const videoEveryN = normalizeNaisteraVideoFrequency(options.videoEveryN ?? settings.naisteraVideoEveryN);
         const wrapStyle = options.wrapStyle ?? !isNaisteraNovelAIModel(model);
+        const isNovelAiTransport = isNaisteraNovelAIModel(model);
         let fullPrompt = buildFinalGenerationPrompt(
             prompt,
             style,
             options.matchedAdditionalRefs || [],
             settings,
-            { wrapStyle },
+            {
+                wrapStyle,
+                // NovelAI must not receive the lorebook/reference-description dump as
+                // free image text. Besides producing visible "dirty" text, a trailing
+                // block can bleed identity/accessories into the last character segment.
+                includeAdditionalRefDescriptions: !isNovelAiTransport,
+            },
         );
         const descriptionMode = normalizeNaisteraCharacterDescriptionsMode(settings.naisteraCharacterDescriptionsMode);
         const characterDescriptionPromptBlock = options.characterDescriptionPromptBlock
@@ -2600,7 +2607,20 @@ export class NovelAiProvider extends Provider {
         // фигурных {}, которые усиливают) — обычная обёртка [STYLE: ...],
         // которую используют текстовые провайдеры (OpenAI/Gemini), здесь
         // случайно принижала бы вес всего style-блока с артистами.
-        const fullPrompt = buildFinalGenerationPrompt(prompt, style, options.matchedAdditionalRefs || [], settings, { wrapStyle: false });
+        const fullPrompt = buildFinalGenerationPrompt(
+            prompt,
+            style,
+            options.matchedAdditionalRefs || [],
+            settings,
+            {
+                wrapStyle: false,
+                // Native NovelAI already receives BASE | CHARACTER 1 | CHARACTER 2
+                // as structured character captions below. Appending a generic
+                // Reference descriptions block here both invites visible prompt text
+                // and accidentally attaches those traits to the final character.
+                includeAdditionalRefDescriptions: false,
+            },
+        );
         iigLog('INFO', `NovelAI full prompt (${fullPrompt.length} chars): ${fullPrompt}`);
         const model = String(options?.modelOverride || settings.model || NOVELAI_MODELS[0].id);
         // V4/V4.5/V5 ждут структурированный v4_prompt/v4_negative_prompt в

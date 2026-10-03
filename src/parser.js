@@ -281,14 +281,14 @@ export function buildFinalGenerationPrompt(
     style,
     matchedAdditionalRefs = [],
     settings = getSettings(),
-    { wrapStyle = true } = {},
+    { wrapStyle = true, includeAdditionalRefDescriptions = true } = {},
 ) {
     const effectiveStyle = resolveEffectiveStyle(style, settings);
     let fullPrompt = wrapStyle
         ? injectStyleBlock(prompt, effectiveStyle)
         : injectPlainStyle(prompt, effectiveStyle);
 
-    if (settings.sendRefDescriptions !== false) {
+    if (includeAdditionalRefDescriptions && settings.sendRefDescriptions !== false) {
         const additionalReferencesBlock = buildAdditionalReferencesPromptBlock(matchedAdditionalRefs);
         if (additionalReferencesBlock) {
             fullPrompt = `${fullPrompt}\n\n${additionalReferencesBlock}`.trim();
