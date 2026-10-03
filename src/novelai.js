@@ -23,6 +23,7 @@ export const NOVELAI_RESOLUTION_PRESETS = Object.freeze([
     { width: 1216, height: 832, label: '1216x832 (Landscape)' },
     { width: 1024, height: 1024, label: '1024x1024 (Square)' },
     { width: 1024, height: 1536, label: '1024x1536 (Portrait)' },
+    { width: 1024, height: 1792, label: '1024x1792 (9:16 Portrait)' },
     { width: 1536, height: 1024, label: '1536x1024 (Landscape)' },
     { width: 1536, height: 1536, label: '1536x1536 (Square)' },
 ]);

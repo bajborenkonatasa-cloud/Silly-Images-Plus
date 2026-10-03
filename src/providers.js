@@ -2627,10 +2627,20 @@ export class NovelAiProvider extends Provider {
         // дополнение к обычным полям — без него игнорируют часть промпта.
         const isV4Family = model.startsWith('nai-diffusion-4') || model.startsWith('nai-diffusion-5');
 
+        // Honor a strict 9:16 request from <naicom>. The old code ignored
+        // options.aspectRatio for Native NovelAI and always used the saved preset.
+        const requestedAspectRatio = String(options?.aspectRatio || '').trim();
+        const nativeWidth = requestedAspectRatio === '9:16'
+            ? 1024
+            : (Number(settings.novelaiWidth) || 832);
+        const nativeHeight = requestedAspectRatio === '9:16'
+            ? 1792
+            : (Number(settings.novelaiHeight) || 1216);
+
         const parameters = {
             params_version: 4,
-            width: Number(settings.novelaiWidth) || 832,
-            height: Number(settings.novelaiHeight) || 1216,
+            width: nativeWidth,
+            height: nativeHeight,
             scale: Number.isFinite(Number(settings.novelaiCfgScale)) ? Number(settings.novelaiCfgScale) : 5,
             sampler: Object.hasOwn(NOVELAI_SAMPLERS, settings.novelaiSampler) ? settings.novelaiSampler : 'k_euler_ancestral',
             steps: Number.isFinite(Number(settings.novelaiSteps)) ? Math.max(1, Math.min(50, Number(settings.novelaiSteps))) : 23,

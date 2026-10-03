@@ -310,7 +310,13 @@ function buildRequestSnapshot({ prompt, style, references, matchedAdditionalRefs
             imageSize: settings.apiType === 'xai'
                 ? (options?.imageSize || settings.xaiResolution || '')
                 : (options?.imageSize || settings.imageSize || ''),
-            size: settings.size || '',
+            size: settings.apiType === 'novelai'
+                ? ((String(aspectRatio || '') === '9:16')
+                    ? '1024x1792'
+                    : `${Number(settings.novelaiWidth) || 832}x${Number(settings.novelaiHeight) || 1216}`)
+                : settings.apiType === 'naistera'
+                    ? (String(aspectRatio || '') === '9:16' ? '9:16 (provider-controlled)' : String(aspectRatio || ''))
+                    : (settings.size || ''),
             quality: settings.apiType === 'xai'
                 ? (options?.quality || settings.xaiQuality || '')
                 : (options?.quality || settings.quality || ''),
