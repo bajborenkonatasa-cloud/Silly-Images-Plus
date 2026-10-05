@@ -1053,14 +1053,14 @@ function buildDebugSettingsSectionHtml(settings = getSettings()) {
                 </div>
             </div>
             <div class="iig-settings-group">
-                <div class="iig-settings-group-title"><i class="fa-solid fa-dna"></i><span>🧬 NovelAI Visual Context Builder</span></div>
-                <label class="checkbox_label"><input type="checkbox" id="iig_visual_context_enabled" ${settings.novelaiVisualContextEnabled !== false ? 'checked' : ''}> Включить локальную сборку внешности</label>
+                <div class="iig-settings-group-title"><i class="fa-solid fa-dna"></i><span>🧬 NovelAI Visual Context Lite</span></div>
+                <label class="checkbox_label"><input type="checkbox" id="iig_visual_context_enabled" ${settings.novelaiVisualContextEnabled !== false ? 'checked' : ''}> Включить компактную сборку внешности</label>
                 <div class="hint">0 дополнительных API-запросов. Работает только там, где вы вставили <code>{{iig-visual-context}}</code>. С <code>{{iig-book}}</code> не конфликтует.</div>
-                <label class="checkbox_label"><input type="checkbox" id="iig_visual_context_persona" ${settings.novelaiVisualContextIncludePersona !== false ? 'checked' : ''}> Persona / {{user}}</label>
-                <label class="checkbox_label"><input type="checkbox" id="iig_visual_context_character" ${settings.novelaiVisualContextIncludeCharacter !== false ? 'checked' : ''}> Character / {{char}}</label>
-                <label class="checkbox_label"><input type="checkbox" id="iig_visual_context_library" ${settings.novelaiVisualContextIncludeLibrary !== false ? 'checked' : ''}> Описания из библиотеки персонажей</label>
+                <label class="checkbox_label"><input type="checkbox" id="iig_visual_context_persona" ${settings.novelaiVisualContextIncludePersona !== false ? 'checked' : ''}> Persona / {{user}} — только внешность</label>
+                <label class="checkbox_label"><input type="checkbox" id="iig_visual_context_character" ${settings.novelaiVisualContextIncludeCharacter !== false ? 'checked' : ''}> Character / {{char}} — только внешность</label>
+                <label class="checkbox_label"><input type="checkbox" id="iig_visual_context_library" ${settings.novelaiVisualContextIncludeLibrary !== false ? 'checked' : ''}> Visual Library — описания внешности</label>
                 <label for="iig_visual_context_manual">✏️ Ручное дополнение / override</label>
-                <textarea id="iig_visual_context_manual" class="text_pole" rows="4" placeholder="Например: Hanabi сейчас в чёрном блестящем облегающем платье. Не менять цвет одежды.">${sanitizeForHtml(settings.novelaiVisualContextManual || '')}</textarea>
+                <textarea id="iig_visual_context_manual" class="text_pole" rows="4" placeholder="Необязательно: короткая ручная поправка, например «Hanabi: black sparkling fitted dress».">${sanitizeForHtml(settings.novelaiVisualContextManual || '')}</textarea>
                 <div id="iig_show_visual_context_top" class="menu_button iig-button-inline"><i class="fa-solid fa-eye"></i> Посмотреть собранный контекст</div>
             </div>
             <div class="iig-settings-group">
@@ -1207,7 +1207,7 @@ async function showIigVisualContextPreviewPopup() {
     const settings = getSettings();
     const hint = settings.novelaiVisualContextEnabled === false
         ? '<p class="hint">Visual Context Builder выключен. Макрос сейчас возвращает пустой текст.</p>'
-        : '<p class="hint">Это локальный текст, который подставляет {{iig-visual-context}}. Он не делает отдельный API-запрос.</p>';
+        : '<p class="hint">Компактный локальный Visual Context: только внешность из Visual Library + короткая инструкция взять текущую одежду/состояние из последнего RP. Без отдельного API-запроса.</p>';
     const body = rendered ? `${hint}<pre class="iig-last-req-prompt">${sanitizeForHtml(rendered)}</pre>` : `${hint}<p class="hint">Контекст пуст.</p>`;
     await Popup.show.text('🧬 NovelAI Visual Context', body, { allowVerticalScrolling: true, wide: true });
 }

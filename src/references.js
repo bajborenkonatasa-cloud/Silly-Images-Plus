@@ -1097,18 +1097,19 @@ export function renderIigMediaMacro() {
 }
 
 
-function compactVisualSource(value, maxLength = 2200) {
+function compactVisualSource(value, maxLength = 900) {
     const text = String(value || '').replace(/\s+/g, ' ').trim();
     if (!text) return '';
     return text.length > maxLength ? `${text.slice(0, maxLength).trim()}…` : text;
 }
 
 /**
- * Local-only identity context for image-director prompts.
- * No API call is made here: it reads the active ST Character/Persona and the
- * extension's own appearance library synchronously. Put {{iig-visual-context}}
- * into Scene Blocks / prompt context so the SAME language-model request that
- * writes the image prompt can translate/normalize these facts to English tags.
+ * Compact, local-only visual identity context for image-director prompts.
+ * Deliberately does NOT copy full Character/Persona cards: biography, scenario,
+ * personality, likes/dislikes and other RP data are expensive and are already in
+ * the normal LLM context. Stable appearance comes only from the extension's
+ * Character/Persona appearance library. CURRENT outfit/state/action/location are
+ * resolved by the same image-director request from the latest RP messages.
  */
 export function renderIigVisualContextMacro() {
     try {
@@ -1119,45 +1120,34 @@ export function renderIigVisualContextMacro() {
         const includePersona = settings.novelaiVisualContextIncludePersona !== false;
         const includeCharacter = settings.novelaiVisualContextIncludeCharacter !== false;
         const includeLibrary = settings.novelaiVisualContextIncludeLibrary !== false;
-        const lines = [
-            '[SILLY IMAGES PLUS — NOVELAI VISUAL CONTEXT]',
-            'This block is assembled locally. Use it as stable visual identity evidence. Latest explicit RP state overrides it for CURRENT outfit, hairstyle changes, injuries/scars, temporary marks and accessories. Never invent a change.',
-        ];
+        const lines = ['[NOVELAI VISUAL CONTEXT — LITE]'];
 
         const characterId = Number(context?.characterId);
         const character = Number.isFinite(characterId) && characterId >= 0 ? context?.characters?.[characterId] : null;
         if (includeCharacter && character) {
-            const charName = compactVisualSource(character?.name, 160) || '{{char}}';
+            const charName = compactVisualSource(character?.name, 100) || '{{char}}';
             const charKey = getCharacterReferenceKeyForCharacter(character, characterId);
-            const libraryDescription = includeLibrary ? compactVisualSource(getCharacterLibraryDescription('char', charKey, settings)) : '';
-            const cardDescription = compactVisualSource(character?.description);
-            lines.push(`CHARACTER {{char}} — ${charName}`);
-            if (libraryDescription) lines.push(`Appearance library: ${libraryDescription}`);
-            if (cardDescription && cardDescription !== libraryDescription) lines.push(`Character card source: ${cardDescription}`);
+            const appearance = includeLibrary ? compactVisualSource(getCharacterLibraryDescription('char', charKey, settings), 900) : '';
+            if (appearance) lines.push(`{{char}} ${charName}: ${appearance}`);
+            else lines.push(`{{char}} ${charName}: use established visual appearance; do not copy biography/personality.`);
         }
 
         if (includePersona) {
-            const personaName = compactVisualSource(context?.name1, 160) || '{{user}}';
-            const personaDescription = compactVisualSource(context?.powerUserSettings?.persona_description);
-            let userLibraryDescription = '';
+            const personaName = compactVisualSource(context?.name1, 100) || '{{user}}';
+            let appearance = '';
             const activeAvatar = String(context?.powerUserSettings?.user_avatar || '').trim();
             if (includeLibrary && activeAvatar) {
                 const userKey = getUserReferenceKeyForAvatar(activeAvatar);
-                userLibraryDescription = compactVisualSource(getCharacterLibraryDescription('user', userKey, settings));
+                appearance = compactVisualSource(getCharacterLibraryDescription('user', userKey, settings), 900);
             }
-            lines.push(`PERSONA {{user}} — ${personaName}`);
-            if (userLibraryDescription) lines.push(`Appearance library: ${userLibraryDescription}`);
-            if (personaDescription && personaDescription !== userLibraryDescription) lines.push(`Persona description source: ${personaDescription}`);
+            if (appearance) lines.push(`{{user}} ${personaName}: ${appearance}`);
+            else lines.push(`{{user}} ${personaName}: use established visual appearance; do not copy biography/personality.`);
         }
 
-        const manual = compactVisualSource(settings.novelaiVisualContextManual, 4000);
-        if (manual) {
-            lines.push('MANUAL VISUAL OVERRIDE / ADDITION:');
-            lines.push(manual);
-            lines.push('Manual override has priority over stable Character/Persona data unless the latest explicit RP state changes it again.');
-        }
+        const manual = compactVisualSource(settings.novelaiVisualContextManual, 700);
+        if (manual) lines.push(`MANUAL: ${manual}`);
 
-        lines.push('IMAGE DIRECTOR RULE: preserve stable identity above, but derive CURRENT clothing/state/action/pose/gaze from the latest RP context. Output the final NovelAI scene prompt in English using concrete Danbooru/NovelAI tags plus short natural-language clauses where needed.');
+        lines.push('CURRENT RP: from the latest scene only, preserve current clothing/undress, hairstyle changes, visible injuries/marks/accessories, pose/action/gaze, and a tiny location/action cue. Latest explicit RP overrides stable appearance. Do not repeat biography, personality, relationships, preferences, lore or scenario exposition. Keep the final image prompt concise and visual; output it in English with concrete Danbooru/NovelAI tags.');
         return lines.join('\n');
     } catch (error) {
         console.warn('[IIG] Failed to render {{iig-visual-context}}:', error);
