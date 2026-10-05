@@ -2782,12 +2782,8 @@ body.iig-actions-hidden .iig-img-actions {
 
 /* Regenerate button in message extra menu - inherits mes_button styling */
 
-/* Silly Images Plus v0.8 — native xAI image-to-video */
-.iig-video-modal-backdrop{position:fixed;inset:0;z-index:100000;background:rgba(0,0,0,.72);display:flex;align-items:center;justify-content:center;padding:14px}
-.iig-video-modal{width:min(620px,96vw);max-height:90vh;overflow:auto;background:var(--SmartThemeBlurTintColor,#18191d);border:1px solid var(--SmartThemeBorderColor,#666);border-radius:14px;padding:16px;box-shadow:0 18px 60px rgba(0,0,0,.55)}
-.iig-video-title{font-size:1.15em;font-weight:700;margin-bottom:12px}.iig-video-modal textarea,.iig-video-modal select{width:100%;box-sizing:border-box}.iig-video-modal textarea{margin:6px 0 12px;resize:vertical;min-height:105px}.iig-video-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.iig-video-grid label{display:flex;flex-direction:column;gap:5px}.iig-video-audio-label{justify-content:center}.iig-video-audio-label input{width:auto}.iig-video-cost{margin-top:12px;font-weight:700}.iig-video-note{margin-top:7px;opacity:.8;font-size:.92em}.iig-video-buttons{display:flex;justify-content:flex-end;gap:8px;margin-top:14px}.iig-generated-video{display:block;width:100%;height:auto;border-radius:inherit}.iig-video-view-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:7px}.iig-video-open{text-decoration:none!important}@media(max-width:560px){.iig-video-grid{grid-template-columns:1fr}}
 
-/* Silly Images Plus 2.2 — Media Hub: compact, mobile-first settings navigation */
+/* ORDNUNG HUB */
 .iig-media-hub{display:flex;flex-direction:column;gap:10px;padding:12px;margin-bottom:10px;border:1px solid var(--SmartThemeBorderColor);border-radius:14px;background:rgba(0,0,0,.16)}
 .iig-media-hub-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
 .iig-media-hub-title{font-size:1.08em;font-weight:800;letter-spacing:.01em}
@@ -2805,6 +2801,50 @@ body.iig-actions-hidden .iig-img-actions {
 .iig-hub-pages>.iig-section.iig-hub-active-section>.iig-section-body{padding:8px 0 0}
 .iig-hub-pages>.iig-section.iig-hub-active-section{border:0;background:transparent;overflow:visible}
 @media(max-width:700px){.iig-media-hub{padding:10px 8px}.iig-media-hub-status{grid-template-columns:1fr}.iig-media-hub-tabs{gap:4px}.iig-media-hub-tab{min-height:46px;font-size:.92em}.iig-media-hub-tab span{font-size:.62em}}
+
+/* ORDNUNG 2 */
+#iig_settings_root .iig-media-hub{margin:10px 8px 12px;padding:12px;border-radius:16px;border:1px solid var(--SmartThemeBorderColor);background:rgba(10,10,16,.72)}
+#iig_settings_root .iig-media-hub-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
+#iig_settings_root .iig-media-hub-title{font-size:1.08em;font-weight:800}
+#iig_settings_root .iig-media-hub-badge{padding:4px 9px;border-radius:999px;border:1px solid var(--SmartThemeBorderColor);font-size:.72em;font-weight:800}
+#iig_settings_root .iig-media-hub-status{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
+#iig_settings_root .iig-media-hub-status span{display:block;min-width:0;padding:7px 8px;border-radius:10px;background:rgba(255,255,255,.055);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#iig_settings_root .iig-media-hub-status b{display:block;margin-bottom:2px;font-size:.68em;letter-spacing:.06em;text-transform:uppercase;opacity:.58}
+#iig_settings_root .iig-media-hub-tabs{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:5px}
+#iig_settings_root .iig-media-hub-tab{min-width:0;min-height:50px;padding:6px 3px;border:1px solid var(--SmartThemeBorderColor);border-radius:11px;background:rgba(255,255,255,.025);color:inherit;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px}
+#iig_settings_root .iig-media-hub-tab span{max-width:100%;font-size:.66em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#iig_settings_root .iig-media-hub-tab.is-active{background:rgba(255,255,255,.11);box-shadow:inset 0 0 0 1px currentColor}
+#iig_settings_root.iig-hub-content-closed .iig-hub-pages{display:none!important}
+#iig_settings_root [data-section-id="iig_api_section"] .iig-ordnung-group{border:1px solid var(--SmartThemeBorderColor);border-radius:13px;margin:8px 0;padding:0!important;overflow:hidden;background:rgba(255,255,255,.025)}
+#iig_settings_root [data-section-id="iig_api_section"] .iig-ordnung-group>.iig-settings-group-title{display:flex;align-items:center;gap:8px;min-height:48px;padding:10px 12px;margin:0;cursor:pointer;user-select:none}
+#iig_settings_root .iig-ordnung-chevron{margin-left:auto;opacity:.65;transition:transform .18s ease}
+#iig_settings_root .iig-ordnung-group.is-open>.iig-settings-group-title .iig-ordnung-chevron{transform:rotate(180deg)}
+#iig_settings_root .iig-ordnung-group:not(.is-open)>:not(.iig-settings-group-title){display:none!important}
+#iig_settings_root .iig-ordnung-group.is-open>:not(.iig-settings-group-title){margin-left:12px;margin-right:12px}
+#iig_settings_root .iig-ordnung-group.is-open>:last-child{margin-bottom:12px}
+@media(max-width:700px){#iig_settings_root .iig-media-hub{margin:8px 4px 10px;padding:10px 8px}#iig_settings_root .iig-media-hub-status span{padding:6px;font-size:.78em}#iig_settings_root .iig-media-hub-tabs{gap:4px}#iig_settings_root .iig-media-hub-tab{min-height:48px;font-size:.95em}#iig_settings_root .iig-media-hub-tab span{font-size:.58em}}
+
+/* === ORDNUNG 3: compact libraries/editors === */
+#iig_settings_root .iig-ordnung-workspace{padding:4px 2px 12px}
+#iig_settings_root .iig-ordnung-zone{border:1px solid var(--SmartThemeBorderColor);border-radius:14px;background:rgba(255,255,255,.018);overflow:hidden;margin:8px 0}
+#iig_settings_root .iig-ordnung-zone-title{display:flex!important;align-items:center;gap:8px;cursor:pointer;user-select:none;min-height:46px;padding-left:10px;padding-right:10px}
+#iig_settings_root .iig-ordnung-zone-chevron{margin-left:auto;opacity:.62;transition:transform .18s ease}
+#iig_settings_root .iig-ordnung-zone-open>.iig-ordnung-zone-title .iig-ordnung-zone-chevron{transform:rotate(180deg)}
+#iig_settings_root .iig-ordnung-zone-hidden{display:none!important}
+#iig_settings_root [data-section-id="iig_characters_section"] button,
+#iig_settings_root [data-section-id="iig_references_section"] button,
+#iig_settings_root [data-section-id="iig_styles_section"] button{touch-action:manipulation}
+@media(max-width:700px){#iig_settings_root .iig-ordnung-workspace{padding-left:0;padding-right:0}}
+
+/* === MEDIA ROUTER / ORDNUNG 4 === */
+#iig_settings_root .iig-media-router-card{
+  margin:12px 0 6px;padding:12px 13px;border:1px solid color-mix(in srgb,var(--SmartThemeQuoteColor,#a66cff) 55%,var(--SmartThemeBorderColor,#666));
+  border-radius:14px;background:linear-gradient(135deg,rgba(122,72,180,.10),rgba(0,0,0,.08));
+}
+#iig_settings_root .iig-media-router-title{display:flex;align-items:center;gap:8px;font-weight:800;font-size:1.04em;margin-bottom:4px}
+#iig_settings_root .iig-router-badge{margin-left:auto;font-size:.72em;padding:3px 8px;border:1px solid currentColor;border-radius:999px;opacity:.82}
+#iig_settings_root .iig-router-routes{margin-top:8px;padding-top:7px;border-top:1px solid rgba(255,255,255,.08)}
+#iig_settings_root .iig-media-router-card .hint{margin:5px 0 8px;line-height:1.35}
 
 
 /* plus.8: prompt library tabs */
