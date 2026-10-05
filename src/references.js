@@ -1103,6 +1103,40 @@ function compactVisualSource(value, maxLength = 900) {
     return text.length > maxLength ? `${text.slice(0, maxLength).trim()}…` : text;
 }
 
+function normalizeVisualLookupName(value) {
+    return String(value || '').toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+}
+
+function findVisualLibraryDescription(kind, preferredKey, displayName, settings = getSettings()) {
+    const direct = getCharacterLibraryDescription(kind, preferredKey, settings);
+    if (direct) return direct;
+    const library = ensureCharacterReferenceLibrary(settings);
+    const bucket = kind === 'user' ? library.users : library.characters;
+    const wanted = normalizeVisualLookupName(displayName);
+    if (!wanted) return '';
+    for (const [key, raw] of Object.entries(bucket || {})) {
+        const entry = normalizeCharacterLibraryEntry(raw);
+        const candidates = [entry.displayName, key.replace(/^(?:name|avatar):/i, '').replace(/\.[a-z0-9]+$/i, '')];
+        if (candidates.some((candidate) => normalizeVisualLookupName(candidate) === wanted)) {
+            const description = [
+                entry.primary.enabled !== false ? entry.primary.description : '',
+                getCharacterAppearanceTextDescription(entry),
+            ].map(normalizeReferenceDescription).filter(Boolean).join(' ');
+            if (description) return description;
+        }
+    }
+    return '';
+}
+
+function extractAppearanceSection(value, maxLength = 700) {
+    const raw = String(value || '').replace(/\r/g, ' ').replace(/\s+/g, ' ').trim();
+    if (!raw) return '';
+    // Safe fallback only: use an explicitly labelled appearance/visual section,
+    // never the whole card. Stops before common non-visual sections.
+    const match = raw.match(/(?:appearance|visual appearance|внешность)\s*[:\-]\s*([\s\S]*?)(?=\s+(?:personality|scenario|background|history|relationships?|likes?|dislikes?|sexuality|intimacy|характер|сценарий|история|отношения|предпочтения)\s*[:\-]|$)/i);
+    return match ? compactVisualSource(match[1], maxLength) : '';
+}
+
 /**
  * Compact, local-only visual identity context for image-director prompts.
  * Deliberately does NOT copy full Character/Persona cards: biography, scenario,
@@ -1127,27 +1161,33 @@ export function renderIigVisualContextMacro() {
         if (includeCharacter && character) {
             const charName = compactVisualSource(character?.name, 100) || '{{char}}';
             const charKey = getCharacterReferenceKeyForCharacter(character, characterId);
-            const appearance = includeLibrary ? compactVisualSource(getCharacterLibraryDescription('char', charKey, settings), 900) : '';
-            if (appearance) lines.push(`{{char}} ${charName}: ${appearance}`);
-            else lines.push(`{{char}} ${charName}: use established visual appearance; do not copy biography/personality.`);
+            let appearance = includeLibrary
+                ? findVisualLibraryDescription('char', charKey, charName, settings)
+                : '';
+            if (!appearance) appearance = extractAppearanceSection(character?.description, 700);
+            appearance = compactVisualSource(appearance, 700);
+            lines.push(appearance
+                ? `{{char}} ${charName}: ${appearance}`
+                : `{{char}} ${charName}: [visual appearance not found — add it in Characters → Appearance]`);
         }
 
         if (includePersona) {
             const personaName = compactVisualSource(context?.name1, 100) || '{{user}}';
-            let appearance = '';
             const activeAvatar = String(context?.powerUserSettings?.user_avatar || '').trim();
-            if (includeLibrary && activeAvatar) {
-                const userKey = getUserReferenceKeyForAvatar(activeAvatar);
-                appearance = compactVisualSource(getCharacterLibraryDescription('user', userKey, settings), 900);
-            }
-            if (appearance) lines.push(`{{user}} ${personaName}: ${appearance}`);
-            else lines.push(`{{user}} ${personaName}: use established visual appearance; do not copy biography/personality.`);
+            const userKey = activeAvatar ? getUserReferenceKeyForAvatar(activeAvatar) : '';
+            let appearance = includeLibrary
+                ? findVisualLibraryDescription('user', userKey, personaName, settings)
+                : '';
+            appearance = compactVisualSource(appearance, 700);
+            lines.push(appearance
+                ? `{{user}} ${personaName}: ${appearance}`
+                : `{{user}} ${personaName}: [visual appearance not found — add it in Personas → Appearance]`);
         }
 
-        const manual = compactVisualSource(settings.novelaiVisualContextManual, 700);
-        if (manual) lines.push(`MANUAL: ${manual}`);
+        const manual = compactVisualSource(settings.novelaiVisualContextManual, 450);
+        if (manual) lines.push(`MANUAL OVERRIDE: ${manual}`);
 
-        lines.push('CURRENT RP: from the latest scene only, preserve current clothing/undress, hairstyle changes, visible injuries/marks/accessories, pose/action/gaze, and a tiny location/action cue. Latest explicit RP overrides stable appearance. Do not repeat biography, personality, relationships, preferences, lore or scenario exposition. Keep the final image prompt concise and visual; output it in English with concrete Danbooru/NovelAI tags.');
+        lines.push('CURRENT RP: use the latest scene only for current clothing/state, explicit appearance changes, pose/action/gaze and a tiny location cue. Latest explicit RP overrides the stable appearance above. Keep it concise. Final NovelAI prompt: English + concrete Danbooru/NovelAI tags.');
         return lines.join('\n');
     } catch (error) {
         console.warn('[IIG] Failed to render {{iig-visual-context}}:', error);
