@@ -1125,6 +1125,16 @@ function findVisualLibraryDescription(kind, preferredKey, displayName, settings 
             if (description) return description;
         }
     }
+    if (kind === 'user') {
+        const configured = Object.values(bucket || {})
+            .map(normalizeCharacterLibraryEntry)
+            .map((entry) => [
+                entry.primary.enabled !== false ? entry.primary.description : '',
+                getCharacterAppearanceTextDescription(entry),
+            ].map(normalizeReferenceDescription).filter(Boolean).join(' '))
+            .filter(Boolean);
+        if (configured.length === 1) return configured[0];
+    }
     return '';
 }
 
@@ -1133,7 +1143,7 @@ function extractAppearanceSection(value, maxLength = 700) {
     if (!raw) return '';
     // Safe fallback only: use an explicitly labelled appearance/visual section,
     // never the whole card. Stops before common non-visual sections.
-    const match = raw.match(/(?:appearance|visual appearance|внешность)\s*[:\-]\s*([\s\S]*?)(?=\s+(?:personality|scenario|background|history|relationships?|likes?|dislikes?|sexuality|intimacy|характер|сценарий|история|отношения|предпочтения)\s*[:\-]|$)/i);
+    const match = raw.match(/(?:appearance|visual appearance|внешность)\s*[:\-]\s*([\s\S]*?)(?=\s+(?:family|location|personality|scenario|background|history|relationships?|likes?|dislikes?|sexuality|intimacy|family members?|parents?|siblings?|характер|сценарий|история|отношения|предпочтения|семья|локация)\s*[:\-]|$)/i);
     return match ? compactVisualSource(match[1], maxLength) : '';
 }
 
@@ -1145,11 +1155,45 @@ function extractAppearanceSection(value, maxLength = 700) {
  * Character/Persona appearance library. CURRENT outfit/state/action/location are
  * resolved by the same image-director request from the latest RP messages.
  */
+
+export function getIigVisualContextEditKey() {
+    try {
+        const context = SillyTavern.getContext();
+        const characterId = Number(context?.characterId);
+        const character = Number.isFinite(characterId) && characterId >= 0 ? context?.characters?.[characterId] : null;
+        const charPart = character ? (getCharacterReferenceKeyForCharacter(character, characterId) || character?.name || characterId) : 'no-char';
+        const personaPart = String(context?.name1 || '{{user}}').trim();
+        return `${charPart}::${personaPart}`;
+    } catch (_error) {
+        return 'unknown::unknown';
+    }
+}
+
+export function setIigVisualContextEditedOverride(text) {
+    const settings = getSettings();
+    if (!settings.novelaiVisualContextEditedOverrides || typeof settings.novelaiVisualContextEditedOverrides !== 'object') {
+        settings.novelaiVisualContextEditedOverrides = {};
+    }
+    const key = getIigVisualContextEditKey();
+    const value = String(text || '').trim();
+    if (value) settings.novelaiVisualContextEditedOverrides[key] = value;
+    else delete settings.novelaiVisualContextEditedOverrides[key];
+    saveSettings();
+}
+
+export function clearIigVisualContextEditedOverride() {
+    setIigVisualContextEditedOverride('');
+}
+
 export function renderIigVisualContextMacro() {
     try {
         const context = SillyTavern.getContext();
         const settings = getSettings();
         if (settings.novelaiVisualContextEnabled === false) return '';
+
+        const editKey = getIigVisualContextEditKey();
+        const edited = String(settings.novelaiVisualContextEditedOverrides?.[editKey] || '').trim();
+        if (edited) return edited;
 
         const includePersona = settings.novelaiVisualContextIncludePersona !== false;
         const includeCharacter = settings.novelaiVisualContextIncludeCharacter !== false;

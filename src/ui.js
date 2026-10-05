@@ -78,6 +78,8 @@ import {
     importLorebookFromFile,
     renderIigBookMacro,
     renderIigVisualContextMacro,
+    setIigVisualContextEditedOverride,
+    clearIigVisualContextEditedOverride,
 } from './references.js';
 import { fetchModels, resolveActiveProvider, getActiveProviderMaxReferences, A1111_RESOLUTION_PRESETS } from './providers.js';
 import { applyImageActionsStyle } from './imageActions.js';
@@ -1061,7 +1063,10 @@ function buildDebugSettingsSectionHtml(settings = getSettings()) {
                 <label class="checkbox_label"><input type="checkbox" id="iig_visual_context_library" ${settings.novelaiVisualContextIncludeLibrary !== false ? 'checked' : ''}> Visual Library — описания внешности</label>
                 <label for="iig_visual_context_manual">✏️ Ручное дополнение / override</label>
                 <textarea id="iig_visual_context_manual" class="text_pole" rows="4" placeholder="Необязательно: короткая ручная поправка, например «Hanabi: black sparkling fitted dress».">${sanitizeForHtml(settings.novelaiVisualContextManual || '')}</textarea>
-                <div id="iig_show_visual_context_top" class="menu_button iig-button-inline"><i class="fa-solid fa-eye"></i> Посмотреть собранный контекст</div>
+                <div class="iig-debug-actions">
+                    <div id="iig_show_visual_context_top" class="menu_button iig-button-inline"><i class="fa-solid fa-eye"></i> Посмотреть / изменить контекст</div>
+                    <div id="iig_reset_visual_context_edit" class="menu_button iig-button-inline"><i class="fa-solid fa-rotate-left"></i> Сбросить правку</div>
+                </div>
             </div>
             <div class="iig-settings-group">
                 <div class="iig-settings-group-title"><i class="fa-solid fa-magnifying-glass"></i><span>${t`Diagnostics`}</span></div>
@@ -1207,9 +1212,17 @@ async function showIigVisualContextPreviewPopup() {
     const settings = getSettings();
     const hint = settings.novelaiVisualContextEnabled === false
         ? '<p class="hint">Visual Context Builder выключен. Макрос сейчас возвращает пустой текст.</p>'
-        : '<p class="hint">Компактный локальный Visual Context: только внешность из Visual Library + короткая инструкция взять текущую одежду/состояние из последнего RP. Без отдельного API-запроса.</p>';
-    const body = rendered ? `${hint}<pre class="iig-last-req-prompt">${sanitizeForHtml(rendered)}</pre>` : `${hint}<p class="hint">Контекст пуст.</p>`;
-    await Popup.show.text('🧬 NovelAI Visual Context', body, { allowVerticalScrolling: true, wide: true });
+        : '<p class="hint">Можно прямо здесь исправить любые слова — хоть по-русски. Изменения сохраняются для текущей пары Persona + Character и именно этот текст пойдёт через {{iig-visual-context}}. Отдельного API-запроса нет.</p>';
+    const body = `${hint}<textarea id="iig_visual_context_popup_editor" class="text_pole" rows="18" style="width:100%;min-height:360px;white-space:pre-wrap;">${sanitizeForHtml(rendered)}</textarea>`;
+    const popupPromise = Popup.show.text('🧬 NovelAI Visual Context — редактирование', body, { allowVerticalScrolling: true, wide: true });
+    setTimeout(() => {
+        const editor = document.getElementById('iig_visual_context_popup_editor');
+        if (!editor) return;
+        editor.addEventListener('input', (event) => {
+            setIigVisualContextEditedOverride(String(event.target.value || ''));
+        });
+    }, 50);
+    await popupPromise;
 }
 
 // ----- Section toggles -----
@@ -2791,6 +2804,10 @@ function bindDebugSectionEvents(settings) {
     });
     document.getElementById('iig_show_visual_context')?.addEventListener('click', showIigVisualContextPreviewPopup);
     document.getElementById('iig_show_visual_context_top')?.addEventListener('click', showIigVisualContextPreviewPopup);
+    document.getElementById('iig_reset_visual_context_edit')?.addEventListener('click', () => {
+        clearIigVisualContextEditedOverride();
+        toastr.success('Ручная правка Visual Context сброшена. Снова используется автоматическая сборка.');
+    });
 }
 
 // ----- Visibility recomputation -----
