@@ -1151,7 +1151,7 @@ function extractAppearanceSection(value, maxLength = 700) {
     const hit = heading.exec(source);
     if (hit) {
         let tail = source.slice(hit.index + hit[0].length);
-        const stop = /\n\s*(?:\*{0,2})(?:voice(?:\s*&\s*speech)?|speech(?:\s*style)?|personality|family|location|scenario|background|history|relationships?|likes?|dislikes?|sexuality|intimacy|occupation|career|skills?|abilities|behavior|характер|семья|локация|сценарий|история|отношения|речь|голос)(?:\*{0,2})\s*(?::|-|\n)/i;
+        const stop = /(?:\n|\s{1,})(?:\*{0,2})(?:voice(?:\s*&\s*speech)?|speech(?:\s*style)?|personality|family|location|scenario|background|history|relationships?|likes?|dislikes?|sexuality|intimacy|occupation|career|skills?|abilities|behavior|характер|семья|локация|сценарий|история|отношения|речь|голос)(?:\*{0,2})\s*(?::|-|\n)/i;
         const stopHit = stop.exec(tail);
         if (stopHit) tail = tail.slice(0, stopHit.index);
         return compactVisualSource(tail, maxLength);
@@ -1166,6 +1166,39 @@ function extractAppearanceSection(value, maxLength = 700) {
         .filter(Boolean)
         .filter(x => visualKeys.test(x));
     return compactVisualSource(chunks.join('; '), maxLength);
+}
+
+function getCharacterCardDescription(character) {
+    const candidates = [
+        character?.description,
+        character?.data?.description,
+        character?.json_data?.description,
+        character?.card?.description,
+        character?.character?.description,
+    ];
+    for (const value of candidates) {
+        if (typeof value === 'string' && value.trim()) return value.trim();
+    }
+    // SillyTavern character editor fallback (works across several UI generations).
+    for (const selector of ['#description_textarea', '#character_description', 'textarea[name="description"]']) {
+        const el = document.querySelector(selector);
+        if (el && typeof el.value === 'string' && el.value.trim()) return el.value.trim();
+    }
+    return '';
+}
+
+function extractVisualFacts(value, maxLength = 700) {
+    const source = String(value || '').replace(/\r/g, '').trim();
+    if (!source) return '';
+    const wanted = /\b(?:age|height|weight|body measurements?|build|body|figure|face|hair|eyes?|eye color|skin|complexion|lips?|eyebrows?|eyelashes?|birthmark|scar|tattoo|piercing|distinguishing features?|appearance|clothing|outfit|dress|wears?)\b|\b(?:возраст|рост|вес|телосложение|фигура|лицо|волосы|глаза|цвет глаз|кожа|губы|брови|ресницы|родинка|шрам|тату|пирсинг|внешность|одежда|наряд)\b/i;
+    const reject = /\b(?:family|father|mother|husband|wife|personality|speech|voice|likes?|dislikes?|scenario|location|occupation|career|relationship|sexual|intimacy|family|семья|характер|речь|голос|отношения|сценарий|локация)\b/i;
+    const chunks = source.split(/\n+/).map(x => x.replace(/^\s*[•*\-#]+\s*/, '').trim()).filter(Boolean);
+    const picked=[];
+    for (const x of chunks) {
+        if (reject.test(x) && !/^\s*(?:appearance|age|height|build|face|hair|eyes?|skin|body|clothing|outfit|внешность|возраст|рост|телосложение|лицо|волосы|глаза|кожа|одежда)\s*[:\-]/i.test(x)) continue;
+        if (wanted.test(x)) picked.push(x);
+    }
+    return compactVisualSource(picked.join('; '), maxLength);
 }
 
 function getActivePersonaDescription(context, activeAvatar = '') {
@@ -1188,6 +1221,17 @@ function getActivePersonaDescription(context, activeAvatar = '') {
             if (typeof text === 'string' && text.trim()) return text.trim();
         }
     }
+    // Active Persona editor fallback. ST versions differ in where persona data is exposed.
+    for (const selector of ['#persona_description', '#persona_description_textarea', 'textarea[name="persona_description"]']) {
+        const el = document.querySelector(selector);
+        if (el && typeof el.value === 'string' && el.value.trim()) return el.value.trim();
+    }
+    try {
+        const globalDescriptions = globalThis?.power_user?.persona_descriptions || globalThis?.persona_descriptions;
+        const value = globalDescriptions?.[avatar];
+        const text = typeof value === 'string' ? value : (value?.description ?? value?.text ?? value?.prompt);
+        if (typeof text === 'string' && text.trim()) return text.trim();
+    } catch (_) {}
     return '';
 }
 
@@ -1252,7 +1296,10 @@ export function renderIigVisualContextMacro() {
             let appearance = includeLibrary
                 ? findVisualLibraryDescription('char', charKey, charName, settings)
                 : '';
-            if (!appearance) appearance = extractAppearanceSection(character?.description, 700);
+            if (!appearance) {
+                const cardText = getCharacterCardDescription(character);
+                appearance = extractAppearanceSection(cardText, 700) || extractVisualFacts(cardText, 700);
+            }
             appearance = compactVisualSource(appearance, 700);
             lines.push(appearance
                 ? `{{char}} ${charName}: ${appearance}`
@@ -1266,7 +1313,10 @@ export function renderIigVisualContextMacro() {
             let appearance = includeLibrary
                 ? findVisualLibraryDescription('user', userKey, personaName, settings)
                 : '';
-            if (!appearance) appearance = extractAppearanceSection(getActivePersonaDescription(context, activeAvatar), 700);
+            if (!appearance) {
+                const personaText = getActivePersonaDescription(context, activeAvatar);
+                appearance = extractAppearanceSection(personaText, 700) || extractVisualFacts(personaText, 700);
+            }
             appearance = compactVisualSource(appearance, 700);
             lines.push(appearance
                 ? `{{user}} ${personaName}: ${appearance}`
