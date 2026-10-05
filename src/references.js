@@ -1139,12 +1139,56 @@ function findVisualLibraryDescription(kind, preferredKey, displayName, settings 
 }
 
 function extractAppearanceSection(value, maxLength = 700) {
-    const raw = String(value || '').replace(/\r/g, ' ').replace(/\s+/g, ' ').trim();
-    if (!raw) return '';
-    // Safe fallback only: use an explicitly labelled appearance/visual section,
-    // never the whole card. Stops before common non-visual sections.
-    const match = raw.match(/(?:appearance|visual appearance|внешность)\s*[:\-]\s*([\s\S]*?)(?=\s+(?:family|location|personality|scenario|background|history|relationships?|likes?|dislikes?|sexuality|intimacy|family members?|parents?|siblings?|характер|сценарий|история|отношения|предпочтения|семья|локация)\s*[:\-]|$)/i);
-    return match ? compactVisualSource(match[1], maxLength) : '';
+    const source = String(value || '').replace(/\r/g, '').trim();
+    if (!source) return '';
+
+    // ST cards are commonly written as either:
+    //   Appearance: ...
+    //   **Appearance**\nHair: ...\nEyes: ...
+    //   Description: Appearance: ...
+    // Keep the visual block and stop at the next clearly non-visual heading.
+    const heading = /(?:^|\n|\s)(?:description\s*:\s*)?(?:\*{0,2})(?:appearance|visual appearance|внешность)(?:\*{0,2})\s*(?::|-)?\s*/i;
+    const hit = heading.exec(source);
+    if (hit) {
+        let tail = source.slice(hit.index + hit[0].length);
+        const stop = /\n\s*(?:\*{0,2})(?:voice(?:\s*&\s*speech)?|speech(?:\s*style)?|personality|family|location|scenario|background|history|relationships?|likes?|dislikes?|sexuality|intimacy|occupation|career|skills?|abilities|behavior|характер|семья|локация|сценарий|история|отношения|речь|голос)(?:\*{0,2})\s*(?::|-|\n)/i;
+        const stopHit = stop.exec(tail);
+        if (stopHit) tail = tail.slice(0, stopHit.index);
+        return compactVisualSource(tail, maxLength);
+    }
+
+    // Persona descriptions often have no "Appearance" heading at all.
+    // In that case take only explicitly visual facts, never the whole persona.
+    const visualKeys = /\b(?:age|height|weight|body measurements?|build|body|figure|face|hair|eyes?|eye color|skin|complexion|lips?|eyebrows?|eyelashes?|birthmark|scar|tattoo|piercing|distinguishing features?|appearance)\b|\b(?:возраст|рост|вес|телосложение|фигура|лицо|волосы|глаза|цвет глаз|кожа|губы|брови|ресницы|родинка|шрам|тату|пирсинг|внешность)\b/i;
+    const chunks = source
+        .split(/\n+|(?<=[.!?])\s+(?=[A-ZА-ЯЁ•*])/u)
+        .map(x => x.replace(/^\s*[•*\-]+\s*/, '').trim())
+        .filter(Boolean)
+        .filter(x => visualKeys.test(x));
+    return compactVisualSource(chunks.join('; '), maxLength);
+}
+
+function getActivePersonaDescription(context, activeAvatar = '') {
+    const p = context?.powerUserSettings || {};
+    const avatar = String(activeAvatar || p?.user_avatar || '').trim();
+    const candidates = [
+        p?.persona_descriptions?.[avatar],
+        p?.personaDescriptions?.[avatar],
+        p?.persona_description?.[avatar],
+        p?.personaDescription?.[avatar],
+        context?.persona_descriptions?.[avatar],
+        context?.personaDescriptions?.[avatar],
+        context?.persona_description,
+        context?.personaDescription,
+    ];
+    for (const value of candidates) {
+        if (typeof value === 'string' && value.trim()) return value.trim();
+        if (value && typeof value === 'object') {
+            const text = value.description ?? value.text ?? value.prompt;
+            if (typeof text === 'string' && text.trim()) return text.trim();
+        }
+    }
+    return '';
 }
 
 /**
@@ -1212,7 +1256,7 @@ export function renderIigVisualContextMacro() {
             appearance = compactVisualSource(appearance, 700);
             lines.push(appearance
                 ? `{{char}} ${charName}: ${appearance}`
-                : `{{char}} ${charName}: [visual appearance not found — add it in Characters → Appearance]`);
+                : `{{char}} ${charName}: [appearance source not found ⚠]`);
         }
 
         if (includePersona) {
@@ -1222,10 +1266,11 @@ export function renderIigVisualContextMacro() {
             let appearance = includeLibrary
                 ? findVisualLibraryDescription('user', userKey, personaName, settings)
                 : '';
+            if (!appearance) appearance = extractAppearanceSection(getActivePersonaDescription(context, activeAvatar), 700);
             appearance = compactVisualSource(appearance, 700);
             lines.push(appearance
                 ? `{{user}} ${personaName}: ${appearance}`
-                : `{{user}} ${personaName}: [visual appearance not found — add it in Personas → Appearance]`);
+                : `{{user}} ${personaName}: [appearance source not found ⚠]`);
         }
 
         const manual = compactVisualSource(settings.novelaiVisualContextManual, 450);
