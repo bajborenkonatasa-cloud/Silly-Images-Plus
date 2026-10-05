@@ -319,6 +319,12 @@ export const defaultSettings = Object.freeze({
     novelaiSeed: -1,
     novelaiSkipCfgAboveSigma: 0,
     novelaiNegativePrompt: '',
+    // Local NovelAI visual-context macro controls. No extra API request.
+    novelaiVisualContextEnabled: true,
+    novelaiVisualContextIncludePersona: true,
+    novelaiVisualContextIncludeCharacter: true,
+    novelaiVisualContextIncludeLibrary: true,
+    novelaiVisualContextManual: '',
     apiKeys: {},
     keyIsolationMigrated: false,
     model: '',

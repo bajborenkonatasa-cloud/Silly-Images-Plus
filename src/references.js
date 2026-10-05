@@ -1114,36 +1114,48 @@ export function renderIigVisualContextMacro() {
     try {
         const context = SillyTavern.getContext();
         const settings = getSettings();
+        if (settings.novelaiVisualContextEnabled === false) return '';
+
+        const includePersona = settings.novelaiVisualContextIncludePersona !== false;
+        const includeCharacter = settings.novelaiVisualContextIncludeCharacter !== false;
+        const includeLibrary = settings.novelaiVisualContextIncludeLibrary !== false;
         const lines = [
-            '[SILLY IMAGES PLUS — VISUAL IDENTITY CONTEXT]',
-            'Use this as stable identity evidence for the image prompt. Latest explicit RP state overrides it for current outfit, hairstyle changes, injuries/scars, temporary marks and accessories. Never invent a change.',
+            '[SILLY IMAGES PLUS — NOVELAI VISUAL CONTEXT]',
+            'This block is assembled locally. Use it as stable visual identity evidence. Latest explicit RP state overrides it for CURRENT outfit, hairstyle changes, injuries/scars, temporary marks and accessories. Never invent a change.',
         ];
 
         const characterId = Number(context?.characterId);
-        const character = Number.isFinite(characterId) && characterId >= 0
-            ? context?.characters?.[characterId]
-            : null;
-        if (character) {
+        const character = Number.isFinite(characterId) && characterId >= 0 ? context?.characters?.[characterId] : null;
+        if (includeCharacter && character) {
             const charName = compactVisualSource(character?.name, 160) || '{{char}}';
             const charKey = getCharacterReferenceKeyForCharacter(character, characterId);
-            const libraryDescription = compactVisualSource(getCharacterLibraryDescription('char', charKey, settings));
+            const libraryDescription = includeLibrary ? compactVisualSource(getCharacterLibraryDescription('char', charKey, settings)) : '';
             const cardDescription = compactVisualSource(character?.description);
             lines.push(`CHARACTER {{char}} — ${charName}`);
             if (libraryDescription) lines.push(`Appearance library: ${libraryDescription}`);
             if (cardDescription && cardDescription !== libraryDescription) lines.push(`Character card source: ${cardDescription}`);
         }
 
-        const personaName = compactVisualSource(context?.name1, 160) || '{{user}}';
-        const personaDescription = compactVisualSource(context?.powerUserSettings?.persona_description);
-        let userLibraryDescription = '';
-        const activeAvatar = String(context?.powerUserSettings?.user_avatar || '').trim();
-        if (activeAvatar) {
-            const userKey = getUserReferenceKeyForAvatar(activeAvatar);
-            userLibraryDescription = compactVisualSource(getCharacterLibraryDescription('user', userKey, settings));
+        if (includePersona) {
+            const personaName = compactVisualSource(context?.name1, 160) || '{{user}}';
+            const personaDescription = compactVisualSource(context?.powerUserSettings?.persona_description);
+            let userLibraryDescription = '';
+            const activeAvatar = String(context?.powerUserSettings?.user_avatar || '').trim();
+            if (includeLibrary && activeAvatar) {
+                const userKey = getUserReferenceKeyForAvatar(activeAvatar);
+                userLibraryDescription = compactVisualSource(getCharacterLibraryDescription('user', userKey, settings));
+            }
+            lines.push(`PERSONA {{user}} — ${personaName}`);
+            if (userLibraryDescription) lines.push(`Appearance library: ${userLibraryDescription}`);
+            if (personaDescription && personaDescription !== userLibraryDescription) lines.push(`Persona description source: ${personaDescription}`);
         }
-        lines.push(`PERSONA {{user}} — ${personaName}`);
-        if (userLibraryDescription) lines.push(`Appearance library: ${userLibraryDescription}`);
-        if (personaDescription && personaDescription !== userLibraryDescription) lines.push(`Persona description source: ${personaDescription}`);
+
+        const manual = compactVisualSource(settings.novelaiVisualContextManual, 4000);
+        if (manual) {
+            lines.push('MANUAL VISUAL OVERRIDE / ADDITION:');
+            lines.push(manual);
+            lines.push('Manual override has priority over stable Character/Persona data unless the latest explicit RP state changes it again.');
+        }
 
         lines.push('IMAGE DIRECTOR RULE: preserve stable identity above, but derive CURRENT clothing/state/action/pose/gaze from the latest RP context. Output the final NovelAI scene prompt in English using concrete Danbooru/NovelAI tags plus short natural-language clauses where needed.');
         return lines.join('\n');

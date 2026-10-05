@@ -77,6 +77,7 @@ import {
     importLorebookFromUrl,
     importLorebookFromFile,
     renderIigBookMacro,
+    renderIigVisualContextMacro,
 } from './references.js';
 import { fetchModels, resolveActiveProvider, getActiveProviderMaxReferences, A1111_RESOLUTION_PRESETS } from './providers.js';
 import { applyImageActionsStyle } from './imageActions.js';
@@ -1052,6 +1053,17 @@ function buildDebugSettingsSectionHtml(settings = getSettings()) {
                 </div>
             </div>
             <div class="iig-settings-group">
+                <div class="iig-settings-group-title"><i class="fa-solid fa-dna"></i><span>🧬 NovelAI Visual Context Builder</span></div>
+                <label class="checkbox_label"><input type="checkbox" id="iig_visual_context_enabled" ${settings.novelaiVisualContextEnabled !== false ? 'checked' : ''}> Включить локальную сборку внешности</label>
+                <div class="hint">0 дополнительных API-запросов. Работает только там, где вы вставили <code>{{iig-visual-context}}</code>. С <code>{{iig-book}}</code> не конфликтует.</div>
+                <label class="checkbox_label"><input type="checkbox" id="iig_visual_context_persona" ${settings.novelaiVisualContextIncludePersona !== false ? 'checked' : ''}> Persona / {{user}}</label>
+                <label class="checkbox_label"><input type="checkbox" id="iig_visual_context_character" ${settings.novelaiVisualContextIncludeCharacter !== false ? 'checked' : ''}> Character / {{char}}</label>
+                <label class="checkbox_label"><input type="checkbox" id="iig_visual_context_library" ${settings.novelaiVisualContextIncludeLibrary !== false ? 'checked' : ''}> Описания из библиотеки персонажей</label>
+                <label for="iig_visual_context_manual">✏️ Ручное дополнение / override</label>
+                <textarea id="iig_visual_context_manual" class="text_pole" rows="4" placeholder="Например: Hanabi сейчас в чёрном блестящем облегающем платье. Не менять цвет одежды.">${sanitizeForHtml(settings.novelaiVisualContextManual || '')}</textarea>
+                <div id="iig_show_visual_context_top" class="menu_button iig-button-inline"><i class="fa-solid fa-eye"></i> Посмотреть собранный контекст</div>
+            </div>
+            <div class="iig-settings-group">
                 <div class="iig-settings-group-title"><i class="fa-solid fa-magnifying-glass"></i><span>${t`Diagnostics`}</span></div>
                 <div class="iig-debug-actions">
                     <div id="iig_show_last_request" class="menu_button iig-button-inline" title="${t`View prompt and references sent in the most recent generation`}">
@@ -1059,6 +1071,9 @@ function buildDebugSettingsSectionHtml(settings = getSettings()) {
                     </div>
                     <div id="iig_show_book_macro" class="menu_button iig-button-inline" title="${t`Preview the rendered {{iig-book}} macro as the LLM will see it`}">
                         <i class="fa-solid fa-book"></i> ${t`Show {{iig-book}} preview`}
+                    </div>
+                    <div id="iig_show_visual_context" class="menu_button iig-button-inline" title="Preview the local NovelAI visual context">
+                        <i class="fa-solid fa-eye"></i> 👁 Visual Context preview
                     </div>
                 </div>
             </div>
@@ -1184,6 +1199,17 @@ async function showIigBookPreviewPopup() {
         ? `${hintHtml}<pre class="iig-last-req-prompt">${sanitizeForHtml(rendered)}</pre>`
         : `${hintHtml}<p class="hint">${t`The macro is currently empty: no enabled lorebook has any references with a name.`}</p>`;
     await Popup.show.text(t`{{iig-book}} preview`, bodyHtml, { allowVerticalScrolling: true, wide: true });
+}
+
+
+async function showIigVisualContextPreviewPopup() {
+    const rendered = renderIigVisualContextMacro();
+    const settings = getSettings();
+    const hint = settings.novelaiVisualContextEnabled === false
+        ? '<p class="hint">Visual Context Builder выключен. Макрос сейчас возвращает пустой текст.</p>'
+        : '<p class="hint">Это локальный текст, который подставляет {{iig-visual-context}}. Он не делает отдельный API-запрос.</p>';
+    const body = rendered ? `${hint}<pre class="iig-last-req-prompt">${sanitizeForHtml(rendered)}</pre>` : `${hint}<p class="hint">Контекст пуст.</p>`;
+    await Popup.show.text('🧬 NovelAI Visual Context', body, { allowVerticalScrolling: true, wide: true });
 }
 
 // ----- Section toggles -----
@@ -2748,6 +2774,23 @@ function bindDebugSectionEvents(settings) {
     document.getElementById('iig_show_book_macro')?.addEventListener('click', () => {
         showIigBookPreviewPopup();
     });
+
+    const bindVisualToggle = (id, key) => {
+        document.getElementById(id)?.addEventListener('change', (e) => {
+            settings[key] = !!e.target.checked;
+            saveSettings();
+        });
+    };
+    bindVisualToggle('iig_visual_context_enabled', 'novelaiVisualContextEnabled');
+    bindVisualToggle('iig_visual_context_persona', 'novelaiVisualContextIncludePersona');
+    bindVisualToggle('iig_visual_context_character', 'novelaiVisualContextIncludeCharacter');
+    bindVisualToggle('iig_visual_context_library', 'novelaiVisualContextIncludeLibrary');
+    document.getElementById('iig_visual_context_manual')?.addEventListener('input', (e) => {
+        settings.novelaiVisualContextManual = String(e.target.value || '');
+        saveSettings();
+    });
+    document.getElementById('iig_show_visual_context')?.addEventListener('click', showIigVisualContextPreviewPopup);
+    document.getElementById('iig_show_visual_context_top')?.addEventListener('click', showIigVisualContextPreviewPopup);
 }
 
 // ----- Visibility recomputation -----
