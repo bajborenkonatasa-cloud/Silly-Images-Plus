@@ -1096,6 +1096,63 @@ export function renderIigMediaMacro() {
     ].join('\\n');
 }
 
+
+function compactVisualSource(value, maxLength = 2200) {
+    const text = String(value || '').replace(/\s+/g, ' ').trim();
+    if (!text) return '';
+    return text.length > maxLength ? `${text.slice(0, maxLength).trim()}…` : text;
+}
+
+/**
+ * Local-only identity context for image-director prompts.
+ * No API call is made here: it reads the active ST Character/Persona and the
+ * extension's own appearance library synchronously. Put {{iig-visual-context}}
+ * into Scene Blocks / prompt context so the SAME language-model request that
+ * writes the image prompt can translate/normalize these facts to English tags.
+ */
+export function renderIigVisualContextMacro() {
+    try {
+        const context = SillyTavern.getContext();
+        const settings = getSettings();
+        const lines = [
+            '[SILLY IMAGES PLUS — VISUAL IDENTITY CONTEXT]',
+            'Use this as stable identity evidence for the image prompt. Latest explicit RP state overrides it for current outfit, hairstyle changes, injuries/scars, temporary marks and accessories. Never invent a change.',
+        ];
+
+        const characterId = Number(context?.characterId);
+        const character = Number.isFinite(characterId) && characterId >= 0
+            ? context?.characters?.[characterId]
+            : null;
+        if (character) {
+            const charName = compactVisualSource(character?.name, 160) || '{{char}}';
+            const charKey = getCharacterReferenceKeyForCharacter(character, characterId);
+            const libraryDescription = compactVisualSource(getCharacterLibraryDescription('char', charKey, settings));
+            const cardDescription = compactVisualSource(character?.description);
+            lines.push(`CHARACTER {{char}} — ${charName}`);
+            if (libraryDescription) lines.push(`Appearance library: ${libraryDescription}`);
+            if (cardDescription && cardDescription !== libraryDescription) lines.push(`Character card source: ${cardDescription}`);
+        }
+
+        const personaName = compactVisualSource(context?.name1, 160) || '{{user}}';
+        const personaDescription = compactVisualSource(context?.powerUserSettings?.persona_description);
+        let userLibraryDescription = '';
+        const activeAvatar = String(context?.powerUserSettings?.user_avatar || '').trim();
+        if (activeAvatar) {
+            const userKey = getUserReferenceKeyForAvatar(activeAvatar);
+            userLibraryDescription = compactVisualSource(getCharacterLibraryDescription('user', userKey, settings));
+        }
+        lines.push(`PERSONA {{user}} — ${personaName}`);
+        if (userLibraryDescription) lines.push(`Appearance library: ${userLibraryDescription}`);
+        if (personaDescription && personaDescription !== userLibraryDescription) lines.push(`Persona description source: ${personaDescription}`);
+
+        lines.push('IMAGE DIRECTOR RULE: preserve stable identity above, but derive CURRENT clothing/state/action/pose/gaze from the latest RP context. Output the final NovelAI scene prompt in English using concrete Danbooru/NovelAI tags plus short natural-language clauses where needed.');
+        return lines.join('\n');
+    } catch (error) {
+        console.warn('[IIG] Failed to render {{iig-visual-context}}:', error);
+        return '';
+    }
+}
+
 export function registerIigBookMacro() {
     try {
         const context = SillyTavern.getContext();
@@ -1112,6 +1169,12 @@ export function registerIigBookMacro() {
                 'Silly Images Plus: compact autonomous media-intent contract for RP/preset blocks.',
             );
             console.log('[IIG] Registered {{iig-media}} macro');
+            context.registerMacro(
+                'iig-visual-context',
+                () => renderIigVisualContextMacro(),
+                'Silly Images Plus: local Character/Persona visual identity context for image-director prompts. No extra API request.',
+            );
+            console.log('[IIG] Registered {{iig-visual-context}} macro');
         }
     } catch (error) {
         console.warn('[IIG] Failed to register {{iig-book}} macro:', error);
