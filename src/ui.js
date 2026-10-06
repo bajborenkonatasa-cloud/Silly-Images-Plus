@@ -34,6 +34,7 @@ import {
     DEFAULT_REF_INSTRUCTION,
     getLastRequestSnapshot,
     normalizeNaisteraModel,
+    isNaisteraNovelAIModel,
     normalizeNaisteraVideoFrequency,
     normalizeImageContextCount,
     normalizeConfiguredEndpoint,
