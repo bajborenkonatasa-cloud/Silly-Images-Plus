@@ -1142,29 +1142,40 @@ function extractAppearanceSection(value, maxLength = 700) {
     const source = String(value || '').replace(/\r/g, '').trim();
     if (!source) return '';
 
-    // ST cards are commonly written as either:
-    //   Appearance: ...
-    //   **Appearance**\nHair: ...\nEyes: ...
-    //   Description: Appearance: ...
-    // Keep the visual block and stop at the next clearly non-visual heading.
-    const heading = /(?:^|\n|\s)(?:description\s*:\s*)?(?:\*{0,2})(?:appearance|visual appearance|внешность)(?:\*{0,2})\s*(?::|-)?\s*/i;
-    const hit = heading.exec(source);
-    if (hit) {
-        let tail = source.slice(hit.index + hit[0].length);
-        const stop = /(?:\n|\s{1,})(?:\*{0,2})(?:voice(?:\s*&\s*speech)?|speech(?:\s*style)?|personality|family|location|scenario|background|history|relationships?|likes?|dislikes?|sexuality|intimacy|occupation|career|skills?|abilities|behavior|характер|семья|локация|сценарий|история|отношения|речь|голос)(?:\*{0,2})\s*(?::|-|\n)/i;
-        const stopHit = stop.exec(tail);
-        if (stopHit) tail = tail.slice(0, stopHit.index);
-        return compactVisualSource(tail, maxLength);
+    // Parse by lines instead of one large regex. Character cards in ST use many
+    // formats: "Appearance", "**Appearance**", "Appearance:", or
+    // "Description: Appearance: ...". Once inside the visual block, keep only
+    // visual fields and stop on the next semantic section.
+    const lines = source.split(/\n+/).map(x => x.trim()).filter(Boolean);
+    const appearanceHeading = /^(?:(?:description)\s*:\s*)?\*{0,2}(?:appearance|visual appearance|внешность)\*{0,2}\s*(?::|-)?\s*(.*)$/i;
+    const stopHeading = /^\*{0,2}(?:voice(?:\s*&\s*speech)?|speech(?:\s*style)?|personality|family|father|mother|location|scenario|background|history|relationships?|likes?|dislikes?|sexuality|intimacy|occupation|career|skills?|abilities|behavior|речь|голос|характер|семья|отец|мать|локация|сценарий|история|отношения)\*{0,2}\s*(?::|-)?/i;
+    const clothingLine = /^(?:\*+\s*)?(?:clothing(?:\s+style)?|outfit|wardrobe|attire|dress|wears?|одежда|наряд)\b/i;
+    let inAppearance = false;
+    const picked = [];
+    for (const raw of lines) {
+        const line = raw.replace(/^#+\s*/, '').trim();
+        const hit = appearanceHeading.exec(line);
+        if (!inAppearance && hit) {
+            inAppearance = true;
+            if (hit[1]?.trim()) picked.push(hit[1].trim());
+            continue;
+        }
+        if (!inAppearance) continue;
+        if (stopHeading.test(line)) break;
+        // Stable visual context must not freeze a card's default wardrobe.
+        // Current clothing is resolved from the latest RP scene instead.
+        if (clothingLine.test(line)) continue;
+        picked.push(line.replace(/^\s*[•*\-]+\s*/, '').trim());
     }
+    if (picked.length) return compactVisualSource(picked.join('; '), maxLength);
 
-    // Persona descriptions often have no "Appearance" heading at all.
-    // In that case take only explicitly visual facts, never the whole persona.
-    const visualKeys = /\b(?:age|height|weight|body measurements?|build|body|figure|face|hair|eyes?|eye color|skin|complexion|lips?|eyebrows?|eyelashes?|birthmark|scar|tattoo|piercing|distinguishing features?|appearance)\b|\b(?:возраст|рост|вес|телосложение|фигура|лицо|волосы|глаза|цвет глаз|кожа|губы|брови|ресницы|родинка|шрам|тату|пирсинг|внешность)\b/i;
-    const chunks = source
-        .split(/\n+|(?<=[.!?])\s+(?=[A-ZА-ЯЁ•*])/u)
-        .map(x => x.replace(/^\s*[•*\-]+\s*/, '').trim())
-        .filter(Boolean)
-        .filter(x => visualKeys.test(x));
+    // Persona descriptions often have no Appearance heading. Pick explicit
+    // physical facts only; biography/preferences never enter this macro.
+    const visualKeys = /\b(?:age|height|weight|body measurements?|build|body|figure|face|hair|eyes?|eye color|skin|complexion|lips?|eyebrows?|eyelashes?|birthmark|scar|tattoo|piercing|distinguishing features?|appearance|miniature)\b|\b(?:возраст|рост|вес|телосложение|фигура|лицо|волосы|глаза|цвет глаз|кожа|губы|брови|ресницы|родинка|шрам|тату|пирсинг|внешность|миниатюр)\b/i;
+    const reject = /\b(?:family|father|mother|husband|wife|personality|speech|voice|likes?|loves?|dislikes?|scenario|location|occupation|career|relationship|sexual|heterosexual|libido|intimacy|family|семья|характер|речь|голос|отношения|сценарий|локация|любит|предпочт)\b/i;
+    const chunks = lines
+        .map(x => x.replace(/^\s*[•*\-#]+\s*/, '').trim())
+        .filter(x => visualKeys.test(x) && !reject.test(x) && !clothingLine.test(x));
     return compactVisualSource(chunks.join('; '), maxLength);
 }
 
@@ -1203,35 +1214,69 @@ function extractVisualFacts(value, maxLength = 700) {
 
 function getActivePersonaDescription(context, activeAvatar = '') {
     const p = context?.powerUserSettings || {};
-    const avatar = String(activeAvatar || p?.user_avatar || '').trim();
-    const candidates = [
-        p?.persona_descriptions?.[avatar],
-        p?.personaDescriptions?.[avatar],
-        p?.persona_description?.[avatar],
-        p?.personaDescription?.[avatar],
-        context?.persona_descriptions?.[avatar],
-        context?.personaDescriptions?.[avatar],
-        context?.persona_description,
-        context?.personaDescription,
-    ];
-    for (const value of candidates) {
+    const globalPowerUser = globalThis?.power_user || globalThis?.powerUserSettings || {};
+    const personaName = String(context?.name1 || '').trim().toLocaleLowerCase();
+    const avatars = [
+        activeAvatar,
+        p?.user_avatar,
+        globalPowerUser?.user_avatar,
+        globalThis?.user_avatar,
+    ].map(x => String(x || '').trim()).filter(Boolean);
+
+    const maps = [
+        p?.persona_descriptions,
+        p?.personaDescriptions,
+        globalPowerUser?.persona_descriptions,
+        globalPowerUser?.personaDescriptions,
+        context?.persona_descriptions,
+        context?.personaDescriptions,
+        globalThis?.persona_descriptions,
+    ].filter(x => x && typeof x === 'object');
+
+    const readEntry = (value) => {
         if (typeof value === 'string' && value.trim()) return value.trim();
         if (value && typeof value === 'object') {
             const text = value.description ?? value.text ?? value.prompt;
             if (typeof text === 'string' && text.trim()) return text.trim();
         }
+        return '';
+    };
+
+    // First use the real active avatar key when ST exposes it.
+    for (const map of maps) {
+        for (const avatar of avatars) {
+            const text = readEntry(map?.[avatar]);
+            if (text) return text;
+        }
     }
-    // Active Persona editor fallback. ST versions differ in where persona data is exposed.
+
+    // Some ST builds expose persona_descriptions but omit user_avatar from the
+    // extension context. Match the active Persona name inside its description.
+    if (personaName) {
+        for (const map of maps) {
+            for (const value of Object.values(map)) {
+                const text = readEntry(value);
+                if (!text) continue;
+                const head = text.slice(0, 260).toLocaleLowerCase();
+                if (head.includes(personaName)) return text;
+            }
+        }
+    }
+
+    // Safe fallback only when there is exactly one populated persona entry.
+    for (const map of maps) {
+        const populated = Object.values(map).map(readEntry).filter(Boolean);
+        if (populated.length === 1) return populated[0];
+    }
+
+    for (const value of [p?.persona_description, p?.personaDescription, context?.persona_description, context?.personaDescription]) {
+        const text = readEntry(value);
+        if (text) return text;
+    }
     for (const selector of ['#persona_description', '#persona_description_textarea', 'textarea[name="persona_description"]']) {
         const el = document.querySelector(selector);
         if (el && typeof el.value === 'string' && el.value.trim()) return el.value.trim();
     }
-    try {
-        const globalDescriptions = globalThis?.power_user?.persona_descriptions || globalThis?.persona_descriptions;
-        const value = globalDescriptions?.[avatar];
-        const text = typeof value === 'string' ? value : (value?.description ?? value?.text ?? value?.prompt);
-        if (typeof text === 'string' && text.trim()) return text.trim();
-    } catch (_) {}
     return '';
 }
 
