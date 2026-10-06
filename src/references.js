@@ -1334,6 +1334,57 @@ export function renderIigVisualContextMacro() {
     }
 }
 
+
+export async function renderIigVisualContextSourceDiagnostic() {
+    const out = ['[VISUAL CONTEXT SOURCE DIAGNOSTIC]'];
+    try {
+        const context = SillyTavern.getContext();
+        const characterId = Number(context?.characterId);
+        const character = Number.isFinite(characterId) && characterId >= 0 ? context?.characters?.[characterId] : null;
+        out.push(`characterId=${String(context?.characterId)} name=${String(character?.name || context?.name2 || '')}`);
+        const charCandidates = {
+            'character.description': character?.description,
+            'character.data.description': character?.data?.description,
+            'character.json_data.description': character?.json_data?.description,
+            'character.card.description': character?.card?.description,
+            'character.character.description': character?.character?.description,
+        };
+        for (const [key, value] of Object.entries(charCandidates)) {
+            const text = typeof value === 'string' ? value.trim() : '';
+            out.push(`${key}: ${text ? `FOUND len=${text.length} :: ${text.slice(0, 500)}` : 'EMPTY'}`);
+        }
+        const domCandidates = ['#description_textarea', '#character_description', 'textarea[name="description"]'];
+        for (const selector of domCandidates) {
+            const el = document.querySelector(selector);
+            const text = typeof el?.value === 'string' ? el.value.trim() : '';
+            out.push(`DOM ${selector}: ${text ? `FOUND len=${text.length} :: ${text.slice(0, 500)}` : 'EMPTY'}`);
+        }
+        out.push(`persona name=${String(context?.name1 || '')}`);
+        out.push(`context.powerUserSettings.user_avatar=${String(context?.powerUserSettings?.user_avatar || '')}`);
+        try {
+            const pm = await loadPersonasModule();
+            const avatar = String(pm?.user_avatar || context?.powerUserSettings?.user_avatar || '').trim();
+            out.push(`personas.js user_avatar=${avatar || 'EMPTY'}`);
+            const maps = [
+                ['personas.js persona_descriptions', pm?.persona_descriptions],
+                ['context powerUser persona_descriptions', context?.powerUserSettings?.persona_descriptions],
+            ];
+            for (const [label, map] of maps) {
+                const raw = map?.[avatar];
+                const text = typeof raw === 'string' ? raw : (raw?.description ?? raw?.text ?? raw?.prompt ?? '');
+                const clean = typeof text === 'string' ? text.trim() : '';
+                out.push(`${label}[active]: ${clean ? `FOUND len=${clean.length} :: ${clean.slice(0, 500)}` : 'EMPTY'}`);
+            }
+        } catch (e) {
+            out.push(`personas.js import ERROR: ${String(e?.message || e)}`);
+        }
+    } catch (e) {
+        out.push(`DIAGNOSTIC ERROR: ${String(e?.message || e)}`);
+    }
+    out.push('Send a screenshot of this diagnostic. It makes NO API request and is NOT injected into the model prompt.');
+    return out.join('\n\n');
+}
+
 export function registerIigBookMacro() {
     try {
         const context = SillyTavern.getContext();

@@ -78,6 +78,7 @@ import {
     importLorebookFromFile,
     renderIigBookMacro,
     renderIigVisualContextMacro,
+    renderIigVisualContextSourceDiagnostic,
     setIigVisualContextEditedOverride,
     clearIigVisualContextEditedOverride,
 } from './references.js';
@@ -1080,6 +1081,9 @@ function buildDebugSettingsSectionHtml(settings = getSettings()) {
                     <div id="iig_show_visual_context" class="menu_button iig-button-inline" title="Preview the local NovelAI visual context">
                         <i class="fa-solid fa-eye"></i> 👁 Visual Context preview
                     </div>
+                    <div id="iig_visual_context_source_diag" class="menu_button iig-button-inline" title="Показать реальные источники Character/Persona без API-запроса">
+                        <i class="fa-solid fa-stethoscope"></i> 🩺 Источники внешности
+                    </div>
                 </div>
             </div>
             <div class="iig-settings-group">
@@ -1206,6 +1210,12 @@ async function showIigBookPreviewPopup() {
     await Popup.show.text(t`{{iig-book}} preview`, bodyHtml, { allowVerticalScrolling: true, wide: true });
 }
 
+
+async function showIigVisualContextSourceDiagnosticPopup() {
+    const rendered = await renderIigVisualContextSourceDiagnostic();
+    const body = `<p class="hint">Это локальная диагностика. Она ничего не отправляет модели и не тратит токены. Нужен один скрин, чтобы привязать сборщик к реальным полям SillyTavern.</p><textarea class="text_pole" rows="22" readonly style="width:100%;min-height:420px;white-space:pre-wrap;">${sanitizeForHtml(rendered)}</textarea>`;
+    await Popup.show.text('🩺 Visual Context — источники', body, { allowVerticalScrolling: true, wide: true });
+}
 
 async function showIigVisualContextPreviewPopup() {
     const rendered = renderIigVisualContextMacro();
@@ -2803,6 +2813,7 @@ function bindDebugSectionEvents(settings) {
         saveSettings();
     });
     document.getElementById('iig_show_visual_context')?.addEventListener('click', showIigVisualContextPreviewPopup);
+    document.getElementById('iig_visual_context_source_diag')?.addEventListener('click', showIigVisualContextSourceDiagnosticPopup);
     document.getElementById('iig_show_visual_context_top')?.addEventListener('click', showIigVisualContextPreviewPopup);
     document.getElementById('iig_reset_visual_context_edit')?.addEventListener('click', () => {
         clearIigVisualContextEditedOverride();
