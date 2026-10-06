@@ -266,7 +266,7 @@ function buildApiSettingsSectionHtml(settings = getSettings()) {
                 <div class="flex-row"><label>Default Fidelity</label><input id="iig_novelai_precise_fidelity" class="flex1" type="range" min="0" max="1" step="0.05" value="${Number.isFinite(Number(settings.novelaiPreciseReferenceFidelity)) ? Number(settings.novelaiPreciseReferenceFidelity) : 0.75}"><span id="iig_novelai_precise_fidelity_value">${Number.isFinite(Number(settings.novelaiPreciseReferenceFidelity)) ? Number(settings.novelaiPreciseReferenceFidelity).toFixed(2) : '0.75'}</span></div>
                 <div id="iig_novelai_precise_status" class="hint">V4.5: Precise Reference готов. V5: референсы не отправляются.</div>
             </div>
-            <div id="iig_novelai_generation_panel" class="iig-novelai-precise-panel ${settings.apiType === 'novelai' ? '' : 'iig-hidden'}">
+            <div id="iig_novelai_generation_panel" class="iig-novelai-precise-panel ${(settings.apiType === 'novelai' || (settings.apiType === 'naistera' && isNaisteraNovelAIModel(settings.naisteraModel))) ? '' : 'iig-hidden'}">
                 <div class="iig-novelai-precise-title"><strong>🎛️ NovelAI generation</strong><span>upstream controls</span></div>
                 <div class="flex-row"><label>Resolution</label><select id="iig_novelai_resolution" class="flex1">
                     ${NOVELAI_RESOLUTION_PRESETS.map(p => `<option value="${p.width}x${p.height}" ${Number(settings.novelaiWidth)===p.width && Number(settings.novelaiHeight)===p.height ? 'selected' : ''}>${p.label}</option>`).join('')}
@@ -1545,11 +1545,74 @@ function bindApiSectionEvents(settings, updateVisibility) {
         saveSettings();
     });
 
+    const novelAiProfileDefaults = (model) => {
+        const m = String(model || '').toLowerCase();
+        const v5 = /nai-diffusion-5|novelai[^a-z0-9]*v?5(?:[^0-9]|$)|(?:^|[-_])v?5(?:[-_]|$)/i.test(m);
+        const v45 = /nai-diffusion-4-5|novelai[^a-z0-9]*v?4[._-]?5|(?:^|[-_])v?4[._-]?5(?:[-_]|$)/i.test(m);
+        return {
+            novelaiWidth: 832,
+            novelaiHeight: 1216,
+            novelaiSteps: 28,
+            novelaiCfgScale: v45 ? 7 : 5,
+            novelaiCfgRescale: v45 ? 0.7 : 0,
+            novelaiSampler: 'k_euler_ancestral',
+            novelaiNoiseSchedule: v45 ? 'karras' : 'native',
+            novelaiSeed: -1,
+            novelaiSkipCfgAboveSigma: 0,
+        };
+    };
+    const novelAiProfileKeys = Object.keys(novelAiProfileDefaults(''));
+    const activeNovelAiProfileInfo = () => {
+        if (settings.apiType === 'novelai') {
+            return { mapKey: 'novelaiGenerationProfiles', model: String(settings.model || '') };
+        }
+        if (settings.apiType === 'naistera' && isNaisteraNovelAIModel(settings.naisteraModel)) {
+            return { mapKey: 'naisteraNovelaiGenerationProfiles', model: String(settings.naisteraModel || '') };
+        }
+        return null;
+    };
+    const saveActiveNovelAiProfile = () => {
+        const info = activeNovelAiProfileInfo();
+        if (!info?.model) return;
+        settings[info.mapKey] = settings[info.mapKey] && typeof settings[info.mapKey] === 'object' ? settings[info.mapKey] : {};
+        settings[info.mapKey][info.model] = Object.fromEntries(novelAiProfileKeys.map((key) => [key, settings[key]]));
+    };
+    const syncNovelAiGenerationUi = () => {
+        const values = {
+            iig_novelai_width: settings.novelaiWidth,
+            iig_novelai_height: settings.novelaiHeight,
+            iig_novelai_steps: settings.novelaiSteps,
+            iig_novelai_cfg: settings.novelaiCfgScale,
+            iig_novelai_cfg_rescale: settings.novelaiCfgRescale,
+            iig_novelai_sampler: settings.novelaiSampler,
+            iig_novelai_noise: settings.novelaiNoiseSchedule,
+            iig_novelai_seed: settings.novelaiSeed,
+            iig_novelai_skip_cfg: settings.novelaiSkipCfgAboveSigma,
+        };
+        for (const [id, value] of Object.entries(values)) {
+            const el = document.getElementById(id);
+            if (el) el.value = String(value);
+        }
+        const preset = NOVELAI_RESOLUTION_PRESETS.find(p => p.width === Number(settings.novelaiWidth) && p.height === Number(settings.novelaiHeight));
+        const resolution = document.getElementById('iig_novelai_resolution');
+        if (resolution) resolution.value = preset ? `${preset.width}x${preset.height}` : 'custom';
+    };
+    const loadNovelAiProfileFor = (provider, model) => {
+        if (!model) return;
+        const mapKey = provider === 'naistera' ? 'naisteraNovelaiGenerationProfiles' : 'novelaiGenerationProfiles';
+        settings[mapKey] = settings[mapKey] && typeof settings[mapKey] === 'object' ? settings[mapKey] : {};
+        const profile = settings[mapKey][model] || novelAiProfileDefaults(model);
+        for (const key of novelAiProfileKeys) settings[key] = profile[key] ?? novelAiProfileDefaults(model)[key];
+        settings[mapKey][model] = Object.fromEntries(novelAiProfileKeys.map((key) => [key, settings[key]]));
+        syncNovelAiGenerationUi();
+    };
+
     const saveNovelAiNumber = (id, key, min, max) => {
         document.getElementById(id)?.addEventListener('change', (e) => {
             const n = Number(e.target.value);
             if (!Number.isFinite(n)) return;
             settings[key] = Math.max(min, Math.min(max, n));
+            saveActiveNovelAiProfile();
             saveSettings();
         });
     };
@@ -1557,6 +1620,7 @@ function bindApiSectionEvents(settings, updateVisibility) {
         const preset = NOVELAI_RESOLUTION_PRESETS.find(p => `${p.width}x${p.height}` === e.target.value);
         if (!preset) return;
         settings.novelaiWidth = preset.width; settings.novelaiHeight = preset.height;
+        saveActiveNovelAiProfile();
         const w = document.getElementById('iig_novelai_width'); const h = document.getElementById('iig_novelai_height');
         if (w) w.value = String(preset.width); if (h) h.value = String(preset.height);
         saveSettings();
@@ -1568,8 +1632,8 @@ function bindApiSectionEvents(settings, updateVisibility) {
     saveNovelAiNumber('iig_novelai_cfg_rescale', 'novelaiCfgRescale', 0, 1);
     saveNovelAiNumber('iig_novelai_seed', 'novelaiSeed', -1, 4294967295);
     saveNovelAiNumber('iig_novelai_skip_cfg', 'novelaiSkipCfgAboveSigma', 0, 100);
-    document.getElementById('iig_novelai_sampler')?.addEventListener('change', (e) => { settings.novelaiSampler = e.target.value; saveSettings(); });
-    document.getElementById('iig_novelai_noise')?.addEventListener('change', (e) => { settings.novelaiNoiseSchedule = e.target.value; saveSettings(); });
+    document.getElementById('iig_novelai_sampler')?.addEventListener('change', (e) => { settings.novelaiSampler = e.target.value; saveActiveNovelAiProfile(); saveSettings(); });
+    document.getElementById('iig_novelai_noise')?.addEventListener('change', (e) => { settings.novelaiNoiseSchedule = e.target.value; saveActiveNovelAiProfile(); saveSettings(); });
     document.getElementById('iig_novelai_negative_prompt')?.addEventListener('input', (e) => { settings.novelaiNegativePrompt = String(e.target.value || ''); saveSettings(); });
 
     document.getElementById('iig_api_key')?.addEventListener('change', () => {
@@ -1612,6 +1676,7 @@ function bindApiSectionEvents(settings, updateVisibility) {
 
     const modelApplyChange = (value) => {
         settings.model = value;
+        if (settings.apiType === 'novelai') loadNovelAiProfileFor('novelai', value);
         if (settings.apiType !== 'naistera' && settings.apiType !== 'novelai') {
             settings.modelsByApiType = settings.modelsByApiType || {};
             settings.modelsByApiType[settings.apiType] = String(value || '');
@@ -1756,6 +1821,7 @@ function bindApiSectionEvents(settings, updateVisibility) {
 
     document.getElementById('iig_naistera_model')?.addEventListener('change', (e) => {
         settings.naisteraModel = normalizeNaisteraModel(e.target.value);
+        if (isNaisteraNovelAIModel(settings.naisteraModel)) loadNovelAiProfileFor('naistera', settings.naisteraModel);
         saveSettings();
         updateVisibility();
     });
@@ -2855,7 +2921,7 @@ function buildUpdateVisibility(settings) {
         document.getElementById('iig_raw_endpoint_row')?.classList.toggle('iig-hidden', isNovelAi);
         document.getElementById('iig_novelai_hint')?.classList.toggle('iig-hidden', !isNovelAi);
         document.getElementById('iig_novelai_precise_panel')?.classList.toggle('iig-hidden', !isNovelAi);
-        document.getElementById('iig_novelai_generation_panel')?.classList.toggle('iig-hidden', !isNovelAi);
+        document.getElementById('iig_novelai_generation_panel')?.classList.toggle('iig-hidden', !(isNovelAi || (isNaistera && isNaisteraNovelAIModel(settings.naisteraModel)));
         document.getElementById('iig_image_context_section')?.classList.toggle('iig-hidden', !refsSupported);
         document.getElementById('iig_image_context_count_row')?.classList.toggle('iig-hidden', !(refsSupported && settings.imageContextEnabled));
         document.getElementById('iig_additional_refs_section')?.classList.toggle('iig-hidden', !refsSupported);

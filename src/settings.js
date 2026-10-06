@@ -319,6 +319,10 @@ export const defaultSettings = Object.freeze({
     novelaiSeed: -1,
     novelaiSkipCfgAboveSigma: 0,
     novelaiNegativePrompt: '',
+    // Per-model generation presets. Native NovelAI and Naistera NovelAI keep
+    // independent values so switching V4.5 <-> V5 never leaks CFG/rescale/schedule.
+    novelaiGenerationProfiles: {},
+    naisteraNovelaiGenerationProfiles: {},
     // Local NovelAI visual-context macro controls. No extra API request.
     novelaiVisualContextEnabled: true,
     novelaiVisualContextIncludePersona: true,
