@@ -34,7 +34,6 @@ import {
     DEFAULT_REF_INSTRUCTION,
     getLastRequestSnapshot,
     normalizeNaisteraModel,
-    isNaisteraNovelAIModel,
     normalizeNaisteraVideoFrequency,
     normalizeImageContextCount,
     normalizeConfiguredEndpoint,
@@ -50,6 +49,7 @@ import {
     renameConnectionProfile,
     removeConnectionProfile,
     isNovelAiKey,
+    isNaisteraNovelAIModel,
     switchApiKeyForType,
 } from './settings.js';
 import {
