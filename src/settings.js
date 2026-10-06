@@ -319,6 +319,11 @@ export const defaultSettings = Object.freeze({
     novelaiSeed: -1,
     novelaiSkipCfgAboveSigma: 0,
     novelaiNegativePrompt: '',
+    // Per-model Native NovelAI generation presets. Kept isolated from Naistera.
+    novelaiGenerationProfiles: {
+        v45: { width: 832, height: 1216, steps: 28, cfgScale: 7, cfgRescale: 0.7, sampler: 'k_euler_ancestral', noiseSchedule: 'karras', seed: -1, skipCfgAboveSigma: 0 },
+        v5: { width: 832, height: 1216, steps: 28, cfgScale: 5, cfgRescale: 0, sampler: 'k_euler_ancestral', noiseSchedule: 'native', seed: -1, skipCfgAboveSigma: 0 },
+    },
     // Local NovelAI visual-context macro controls. No extra API request.
     novelaiVisualContextEnabled: true,
     novelaiVisualContextIncludePersona: true,

@@ -1545,11 +1545,36 @@ function bindApiSectionEvents(settings, updateVisibility) {
         saveSettings();
     });
 
+    // Native NovelAI only: remember V4.5 and V5 generation controls independently.
+    // Naistera is deliberately not involved in this logic.
+    const novelAiProfileKey = (model = settings.model) => String(model || '').startsWith('nai-diffusion-5-') ? 'v5'
+        : String(model || '').startsWith('nai-diffusion-4-5-') ? 'v45' : '';
+    const ensureNovelAiProfiles = () => {
+        settings.novelaiGenerationProfiles = settings.novelaiGenerationProfiles || {};
+        settings.novelaiGenerationProfiles.v45 = settings.novelaiGenerationProfiles.v45 || { width:832,height:1216,steps:28,cfgScale:7,cfgRescale:0.7,sampler:'k_euler_ancestral',noiseSchedule:'karras',seed:-1,skipCfgAboveSigma:0 };
+        settings.novelaiGenerationProfiles.v5 = settings.novelaiGenerationProfiles.v5 || { width:832,height:1216,steps:28,cfgScale:5,cfgRescale:0,sampler:'k_euler_ancestral',noiseSchedule:'native',seed:-1,skipCfgAboveSigma:0 };
+        return settings.novelaiGenerationProfiles;
+    };
+    const captureNovelAiProfile = (key = novelAiProfileKey()) => {
+        if (settings.apiType !== 'novelai' || !key) return;
+        const profiles = ensureNovelAiProfiles();
+        profiles[key] = { width:Number(settings.novelaiWidth)||832, height:Number(settings.novelaiHeight)||1216, steps:Number(settings.novelaiSteps)||28, cfgScale:Number(settings.novelaiCfgScale), cfgRescale:Number(settings.novelaiCfgRescale)||0, sampler:settings.novelaiSampler||'k_euler_ancestral', noiseSchedule:settings.novelaiNoiseSchedule||(key==='v5'?'native':'karras'), seed:Number.isFinite(Number(settings.novelaiSeed))?Number(settings.novelaiSeed):-1, skipCfgAboveSigma:Number(settings.novelaiSkipCfgAboveSigma)||0 };
+    };
+    const applyNovelAiProfile = (key) => {
+        if (!key) return;
+        const p = ensureNovelAiProfiles()[key];
+        settings.novelaiWidth=p.width; settings.novelaiHeight=p.height; settings.novelaiSteps=p.steps; settings.novelaiCfgScale=p.cfgScale; settings.novelaiCfgRescale=p.cfgRescale; settings.novelaiSampler=p.sampler; settings.novelaiNoiseSchedule=p.noiseSchedule; settings.novelaiSeed=p.seed; settings.novelaiSkipCfgAboveSigma=p.skipCfgAboveSigma;
+        const vals={iig_novelai_width:p.width,iig_novelai_height:p.height,iig_novelai_steps:p.steps,iig_novelai_cfg:p.cfgScale,iig_novelai_cfg_rescale:p.cfgRescale,iig_novelai_sampler:p.sampler,iig_novelai_noise:p.noiseSchedule,iig_novelai_seed:p.seed,iig_novelai_skip_cfg:p.skipCfgAboveSigma};
+        for (const [id,v] of Object.entries(vals)) { const el=document.getElementById(id); if(el) el.value=String(v); }
+        const res=document.getElementById('iig_novelai_resolution'); if(res){ const match=NOVELAI_RESOLUTION_PRESETS.some(x=>x.width===p.width&&x.height===p.height); res.value=match?`${p.width}x${p.height}`:'custom'; }
+    };
+
     const saveNovelAiNumber = (id, key, min, max) => {
         document.getElementById(id)?.addEventListener('change', (e) => {
             const n = Number(e.target.value);
             if (!Number.isFinite(n)) return;
             settings[key] = Math.max(min, Math.min(max, n));
+            captureNovelAiProfile();
             saveSettings();
         });
     };
@@ -1559,6 +1584,7 @@ function bindApiSectionEvents(settings, updateVisibility) {
         settings.novelaiWidth = preset.width; settings.novelaiHeight = preset.height;
         const w = document.getElementById('iig_novelai_width'); const h = document.getElementById('iig_novelai_height');
         if (w) w.value = String(preset.width); if (h) h.value = String(preset.height);
+        captureNovelAiProfile();
         saveSettings();
     });
     saveNovelAiNumber('iig_novelai_width', 'novelaiWidth', 64, 2048);
@@ -1568,8 +1594,8 @@ function bindApiSectionEvents(settings, updateVisibility) {
     saveNovelAiNumber('iig_novelai_cfg_rescale', 'novelaiCfgRescale', 0, 1);
     saveNovelAiNumber('iig_novelai_seed', 'novelaiSeed', -1, 4294967295);
     saveNovelAiNumber('iig_novelai_skip_cfg', 'novelaiSkipCfgAboveSigma', 0, 100);
-    document.getElementById('iig_novelai_sampler')?.addEventListener('change', (e) => { settings.novelaiSampler = e.target.value; saveSettings(); });
-    document.getElementById('iig_novelai_noise')?.addEventListener('change', (e) => { settings.novelaiNoiseSchedule = e.target.value; saveSettings(); });
+    document.getElementById('iig_novelai_sampler')?.addEventListener('change', (e) => { settings.novelaiSampler = e.target.value; captureNovelAiProfile(); saveSettings(); });
+    document.getElementById('iig_novelai_noise')?.addEventListener('change', (e) => { settings.novelaiNoiseSchedule = e.target.value; captureNovelAiProfile(); saveSettings(); });
     document.getElementById('iig_novelai_negative_prompt')?.addEventListener('input', (e) => { settings.novelaiNegativePrompt = String(e.target.value || ''); saveSettings(); });
 
     document.getElementById('iig_api_key')?.addEventListener('change', () => {
@@ -1611,7 +1637,10 @@ function bindApiSectionEvents(settings, updateVisibility) {
     };
 
     const modelApplyChange = (value) => {
+        const previousNovelAiProfile = settings.apiType === 'novelai' ? novelAiProfileKey(settings.model) : '';
+        if (previousNovelAiProfile) captureNovelAiProfile(previousNovelAiProfile);
         settings.model = value;
+        if (settings.apiType === 'novelai') applyNovelAiProfile(novelAiProfileKey(value));
         if (settings.apiType !== 'naistera' && settings.apiType !== 'novelai') {
             settings.modelsByApiType = settings.modelsByApiType || {};
             settings.modelsByApiType[settings.apiType] = String(value || '');
