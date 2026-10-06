@@ -1913,22 +1913,6 @@ export class NaisteraProvider extends Provider {
             aspect_ratio: aspectRatio,
             model,
         };
-        // Naistera's NovelAI transport: forward the same generation controls used
-        // by Native NovelAI. The server remains authoritative; references are still
-        // capability-gated separately by /api/models.
-        if (isNovelAiTransport) {
-            body.width = Number(settings.novelaiWidth) || 832;
-            body.height = Number(settings.novelaiHeight) || 1216;
-            body.steps = Number(settings.novelaiSteps) || 28;
-            body.cfg_scale = Number.isFinite(Number(settings.novelaiCfgScale)) ? Number(settings.novelaiCfgScale) : 5;
-            body.cfg_rescale = Number.isFinite(Number(settings.novelaiCfgRescale)) ? Number(settings.novelaiCfgRescale) : 0;
-            body.sampler = settings.novelaiSampler || 'k_euler_ancestral';
-            body.seed = Number.isFinite(Number(settings.novelaiSeed)) ? Number(settings.novelaiSeed) : -1;
-            if (!/v?5(?:[-_]|$)|diffusion-5/i.test(model)) {
-                body.noise_schedule = settings.novelaiNoiseSchedule || 'karras';
-                body.skip_cfg_above_sigma = Number(settings.novelaiSkipCfgAboveSigma) || 0;
-            }
-        }
         const negativePrompt = String(options.negativePrompt ?? getEffectiveNegativePrompt(settings.naisteraNegativePrompt, { ...settings, naisteraModel: model })).trim();
         if (negativePrompt && this.supportsNegativePrompt({ ...settings, naisteraModel: model })) {
             body.negative_prompt = negativePrompt;
