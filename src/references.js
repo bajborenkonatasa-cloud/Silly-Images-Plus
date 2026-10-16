@@ -1365,6 +1365,13 @@ export function formatIigVisualDna(entries) {
     return lines.join('\n');
 }
 
+// Match only explicit chat-local passports; never infer identity from partial names.
+function findIigVisualDnaForName(entries, name) {
+    const normalized = value => String(value || '').normalize('NFKC').trim().replace(/\s+/g, ' ').toLocaleLowerCase();
+    const target = normalized(name);
+    return target ? entries.find(entry => normalized(entry.name) === target && (entry.appearance || entry.outfit)) : null;
+}
+
 export function renderIigVisualContextMacro() {
     try {
         const context = SillyTavern.getContext();
@@ -1375,6 +1382,7 @@ export function renderIigVisualContextMacro() {
         const edited = String(settings.novelaiVisualContextEditedOverrides?.[editKey] || '').trim();
         if (edited) return edited.includes('[VISUAL DNA — VERIFIED MANUAL TAGS FOR THIS CHAT]') ? edited : [edited, formatIigVisualDna(getIigVisualDnaEntries())].filter(Boolean).join('\n\n');
 
+        const chatDna = getIigVisualDnaEntries();
         const includePersona = settings.novelaiVisualContextIncludePersona !== false;
         const includeCharacter = settings.novelaiVisualContextIncludeCharacter !== false;
         const includeLibrary = settings.novelaiVisualContextIncludeLibrary !== false;
@@ -1385,15 +1393,18 @@ export function renderIigVisualContextMacro() {
         if (includeCharacter && character) {
             const charName = compactVisualSource(character?.name, 100) || '{{char}}';
             const charKey = getCharacterReferenceKeyForCharacter(character, characterId);
-            let appearance = includeLibrary
+            const dnaRecord = findIigVisualDnaForName(chatDna, charName);
+            let appearance = dnaRecord ? '' : (includeLibrary
                 ? findVisualLibraryDescription('char', charKey, charName, settings)
-                : '';
-            if (!appearance) {
+                : '');
+            if (!appearance && !dnaRecord) {
                 const cardText = getCharacterCardDescription(character);
                 appearance = extractAppearanceSection(cardText, 700) || extractVisualFacts(cardText, 700);
             }
             appearance = compactVisualSource(appearance, 700);
-            lines.push(appearance
+            lines.push(dnaRecord
+                ? `{{char}} ${charName}: Use matching chat-local VISUAL DNA below as the visual source of truth.`
+                : appearance
                 ? `{{char}} ${charName}: ${appearance}`
                 : `{{char}} ${charName}: [appearance source not found ⚠]`);
         }
@@ -1402,15 +1413,18 @@ export function renderIigVisualContextMacro() {
             const personaName = compactVisualSource(context?.name1, 100) || '{{user}}';
             const activeAvatar = String(context?.powerUserSettings?.user_avatar || '').trim();
             const userKey = activeAvatar ? getUserReferenceKeyForAvatar(activeAvatar) : '';
-            let appearance = includeLibrary
+            const dnaRecord = findIigVisualDnaForName(chatDna, personaName);
+            let appearance = dnaRecord ? '' : (includeLibrary
                 ? findVisualLibraryDescription('user', userKey, personaName, settings)
-                : '';
-            if (!appearance) {
+                : '');
+            if (!appearance && !dnaRecord) {
                 const personaText = getActivePersonaDescription(context, activeAvatar);
                 appearance = extractAppearanceSection(personaText, 700) || extractVisualFacts(personaText, 700);
             }
             appearance = compactVisualSource(appearance, 700);
-            lines.push(appearance
+            lines.push(dnaRecord
+                ? `{{user}} ${personaName}: Use matching chat-local VISUAL DNA below as the visual source of truth.`
+                : appearance
                 ? `{{user}} ${personaName}: ${appearance}`
                 : `{{user}} ${personaName}: [appearance source not found ⚠]`);
         }
@@ -1418,9 +1432,9 @@ export function renderIigVisualContextMacro() {
         const manual = compactVisualSource(settings.novelaiVisualContextManual, 450);
         if (manual) lines.push(`MANUAL OVERRIDE: ${manual}`);
 
-        const dna = formatIigVisualDna(getIigVisualDnaEntries());
+        const dna = formatIigVisualDna(chatDna);
         if (dna) lines.push(dna);
-        lines.push('CURRENT RP: use latest scene for poses, expressions, actions, location and confirmed current outfit. Do not override fixed identity traits from VISUAL DNA. For any character with no VISUAL DNA, use verified visual facts only; do not invent permanent traits. Write sufficiently detailed English NovelAI/Danbooru tags for each actually depicted participant.');
+        lines.push('VISUAL SOURCE PRIORITY: Current RP is authoritative for visible scene, pose, expressions, and explicitly changed clothing or appearance. Chat-local VISUAL DNA is authoritative for otherwise stable physical traits. If a matching DNA passport exists, do not reintroduce biography, birthdays, zodiac, hobbies, or conflicting card/library text. If DNA outfit conflicts with an explicit newer RP outfit, use the newer RP outfit. For characters without DNA use verified visual facts only; do not invent permanent traits. Only describe characters actually visible or requested. Write detailed English NovelAI/Danbooru tags with separate character blocks.');
         return lines.join('\n');
     } catch (error) {
         console.warn('[IIG] Failed to render {{iig-visual-context}}:', error);
