@@ -627,10 +627,10 @@ let styleLibraryTab = 'styles';
 const styleLibraryStates = { styles: {}, negativePrompts: {} };
 // UI-only grouping. Existing preset data and provider selection are untouched.
 const STYLE_GROUPS = [
-    ['all', 'Все'], ['novelai', '✦ NovelAI'], ['banana', '🍌 Nano Banana'],
+    ['novelai', '✦ NovelAI'], ['banana', '🍌 Nano Banana'],
     ['other', '✧ Другие (GPT / Grok)'], ['unsorted', 'Без категории'],
 ];
-let styleGroupFilter = 'all';
+let styleGroupFilter = 'novelai';
 const STYLE_GROUP_STORE = 'iig-style-provider-groups-v1';
 function styleGroupMap() {
     try { const data = JSON.parse(localStorage.getItem(STYLE_GROUP_STORE) || '{}'); return data && typeof data === 'object' && !Array.isArray(data) ? data : {}; }
@@ -2246,7 +2246,7 @@ function bindStylesSectionEvents(settings) {
     document.getElementById('iig_style_presets')?.addEventListener('click', (event) => {
         const button = event.target instanceof Element ? event.target.closest('[data-style-group-filter]') : null;
         if (!button) return;
-        styleGroupFilter = button.getAttribute('data-style-group-filter') || 'all';
+        styleGroupFilter = button.getAttribute('data-style-group-filter') || 'novelai';
         selectedStyleId = '';
         renderStyleSettings();
     });
