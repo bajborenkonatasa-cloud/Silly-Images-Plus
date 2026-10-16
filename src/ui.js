@@ -689,7 +689,7 @@ function buildStyleListHtml(settings = getSettings()) {
                 <small>${sanitizeForHtml(getStylePreview(style.value))}</small>
             </button>
             <div class="iig-style-item-actions">
-                <button type="button" class="menu_button" data-style-duplicate="${sanitizeForHtml(style.id)}" title="${t`Duplicate`}"><i class="fa-solid fa-copy"></i></button>
+                <button type="button" class="menu_button" data-style-copy="${sanitizeForHtml(style.id)}" title="Скопировать текст стиля" aria-label="Скопировать текст стиля"><i class="fa-solid fa-copy"></i></button>
                 <button type="button" class="menu_button redWarningBG" data-style-remove="${sanitizeForHtml(style.id)}" title="${t`Delete`}"><i class="fa-solid fa-trash"></i></button>
             </div>
         </div>`).join('');
@@ -2228,6 +2228,50 @@ function duplicateStyleById(styleId, settings) {
     renderStyleSettings();
 }
 
+async function copyStyleTextById(styleId, settings, button) {
+    const style = ensureStyles(settings, styleLibraryTab).find((entry) => entry.id === styleId);
+    if (!style) return;
+    const value = String(style.value ?? '');
+    let copied = false;
+    try {
+        if (navigator.clipboard?.writeText) {
+            await navigator.clipboard.writeText(value);
+            copied = true;
+        }
+    } catch (error) {
+        console.warn('[IIG] Clipboard API unavailable, trying fallback:', error);
+    }
+    if (!copied) {
+        const textarea = document.createElement('textarea');
+        textarea.value = value;
+        textarea.setAttribute('readonly', '');
+        textarea.style.cssText = 'position:fixed;left:-9999px;top:0;opacity:0;';
+        document.body.appendChild(textarea);
+        textarea.focus();
+        textarea.select();
+        try { copied = document.execCommand('copy'); } catch (error) { copied = false; }
+        textarea.remove();
+    }
+    if (button) {
+        const icon = button.querySelector('i');
+        if (copied) {
+            button.title = 'Скопировано!';
+            button.setAttribute('aria-label', 'Скопировано!');
+            if (icon) icon.className = 'fa-solid fa-check';
+            setTimeout(() => {
+                if (!button.isConnected) return;
+                button.title = 'Скопировать текст стиля';
+                button.setAttribute('aria-label', 'Скопировать текст стиля');
+                if (icon) icon.className = 'fa-solid fa-copy';
+            }, 1600);
+        } else {
+            button.title = 'Не удалось скопировать — откройте стиль в редакторе';
+            button.setAttribute('aria-label', button.title);
+            console.warn('[IIG] Failed to copy style to clipboard');
+        }
+    }
+}
+
 async function deleteStyleById(styleId, settings) {
     const styles = ensureStyles(settings, styleLibraryTab);
     const index = styles.findIndex((style) => style.id === styleId);
@@ -2310,6 +2354,11 @@ function bindStylesSectionEvents(settings) {
                 selectedStyleId = nextStyleId;
                 renderSelectedStyleEditor(settings);
             }
+            return;
+        }
+        const copyButton = target.closest('[data-style-copy]');
+        if (copyButton) {
+            await copyStyleTextById(String(copyButton.getAttribute('data-style-copy') || ''), settings, copyButton);
             return;
         }
         const duplicateButton = target.closest('[data-style-duplicate]');
