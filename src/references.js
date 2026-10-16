@@ -1318,6 +1318,53 @@ export function clearIigVisualContextEditedOverride() {
     setIigVisualContextEditedOverride('');
 }
 
+// Visual DNA: explicit, chat-scoped NovelAI tags. No image library or reference changes.
+export function getIigVisualDnaChatKey() {
+    try {
+        const c = SillyTavern.getContext();
+        const id = String(c?.chatId ?? c?.chat_id ?? '').trim();
+        if (!id) return ''; // Never silently leak tags between chats.
+        const charId = String(c?.characterId ?? '');
+        const char = Number.isFinite(Number(charId)) && Number(charId) >= 0 ? c?.characters?.[Number(charId)] : null;
+        const charKey = String(char?.avatar || char?.name || charId || 'unknown');
+        return JSON.stringify([charKey, id]);
+    } catch { return ''; }
+}
+
+export function getIigVisualDnaEntries() {
+    const key = getIigVisualDnaChatKey();
+    if (!key) return [];
+    const raw = getSettings().novelaiVisualDnaChats?.[key];
+    return Array.isArray(raw) ? raw.filter(x => x && typeof x.name === 'string').slice(0, 24) : [];
+}
+
+export function saveIigVisualDnaEntries(entries) {
+    const key = getIigVisualDnaChatKey();
+    if (!key) return false;
+    const settings = getSettings();
+    if (!settings.novelaiVisualDnaChats || typeof settings.novelaiVisualDnaChats !== 'object') settings.novelaiVisualDnaChats = {};
+    settings.novelaiVisualDnaChats[key] = (Array.isArray(entries) ? entries : []).slice(0, 24).map(x => ({
+        name: String(x.name || '').trim().slice(0, 100),
+        appearance: String(x.appearance || '').trim().slice(0, 1400),
+        outfit: String(x.outfit || '').trim().slice(0, 900),
+    })).filter(x => x.name);
+    saveSettings();
+    return true;
+}
+
+export function formatIigVisualDna(entries) {
+    const rows = (Array.isArray(entries) ? entries : []).filter(x => x?.name && (x.appearance || x.outfit));
+    if (!rows.length) return '';
+    const lines = ['[VISUAL DNA — VERIFIED MANUAL TAGS FOR THIS CHAT]'];
+    for (const x of rows.slice(0, 12)) {
+        lines.push(`CHARACTER ${compactVisualSource(x.name, 100)}:`);
+        if (x.appearance) lines.push(`FIXED APPEARANCE (preserve exactly): ${compactVisualSource(x.appearance, 1400)}`);
+        if (x.outfit) lines.push(`OUTFIT FOR THIS CHAT (use only when relevant to the pictured scene): ${compactVisualSource(x.outfit, 900)}`);
+    }
+    lines.push('DIRECTOR RULES: Only depict characters actually present or explicitly requested. Match each name to its own traits; never swap features between characters. Manual fixed traits override conflicting generic card/library descriptions. Never invent missing identity traits or claim unspecified clothing is confirmed. Use detailed English NovelAI/Danbooru tags, including all relevant fixed physical features, current outfit, action, expression, composition and background. Keep multiple characters individually identifiable. Do not copy all entries into every image: use only participants of this image.');
+    return lines.join('\n');
+}
+
 export function renderIigVisualContextMacro() {
     try {
         const context = SillyTavern.getContext();
@@ -1326,7 +1373,7 @@ export function renderIigVisualContextMacro() {
 
         const editKey = getIigVisualContextEditKey();
         const edited = String(settings.novelaiVisualContextEditedOverrides?.[editKey] || '').trim();
-        if (edited) return edited;
+        if (edited) return edited.includes('[VISUAL DNA — VERIFIED MANUAL TAGS FOR THIS CHAT]') ? edited : [edited, formatIigVisualDna(getIigVisualDnaEntries())].filter(Boolean).join('\n\n');
 
         const includePersona = settings.novelaiVisualContextIncludePersona !== false;
         const includeCharacter = settings.novelaiVisualContextIncludeCharacter !== false;
@@ -1371,7 +1418,9 @@ export function renderIigVisualContextMacro() {
         const manual = compactVisualSource(settings.novelaiVisualContextManual, 450);
         if (manual) lines.push(`MANUAL OVERRIDE: ${manual}`);
 
-        lines.push('CURRENT RP: use the latest scene only for current clothing/state, explicit appearance changes, pose/action/gaze and a tiny location cue. Latest explicit RP overrides the stable appearance above. Keep it concise. Final NovelAI prompt: English + concrete Danbooru/NovelAI tags.');
+        const dna = formatIigVisualDna(getIigVisualDnaEntries());
+        if (dna) lines.push(dna);
+        lines.push('CURRENT RP: use latest scene for poses, expressions, actions, location and confirmed current outfit. Do not override fixed identity traits from VISUAL DNA. For any character with no VISUAL DNA, use verified visual facts only; do not invent permanent traits. Write sufficiently detailed English NovelAI/Danbooru tags for each actually depicted participant.');
         return lines.join('\n');
     } catch (error) {
         console.warn('[IIG] Failed to render {{iig-visual-context}}:', error);

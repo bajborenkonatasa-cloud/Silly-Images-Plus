@@ -331,6 +331,7 @@ export const defaultSettings = Object.freeze({
     novelaiVisualContextIncludeLibrary: true,
     novelaiVisualContextManual: '',
     novelaiVisualContextEditedOverrides: {},
+    novelaiVisualDnaChats: {},
     apiKeys: {},
     keyIsolationMigrated: false,
     model: '',

@@ -81,6 +81,9 @@ import {
     renderIigVisualContextSourceDiagnostic,
     setIigVisualContextEditedOverride,
     clearIigVisualContextEditedOverride,
+    getIigVisualDnaChatKey,
+    getIigVisualDnaEntries,
+    saveIigVisualDnaEntries,
 } from './references.js';
 import { fetchModels, resolveActiveProvider, getActiveProviderMaxReferences, A1111_RESOLUTION_PRESETS } from './providers.js';
 import { applyImageActionsStyle } from './imageActions.js';
@@ -1064,6 +1067,8 @@ function buildDebugSettingsSectionHtml(settings = getSettings()) {
                 <label class="checkbox_label"><input type="checkbox" id="iig_visual_context_library" ${settings.novelaiVisualContextIncludeLibrary !== false ? 'checked' : ''}> Visual Library — описания внешности</label>
                 <label for="iig_visual_context_manual">✏️ Ручное дополнение / override</label>
                 <textarea id="iig_visual_context_manual" class="text_pole" rows="4" placeholder="Необязательно: короткая ручная поправка, например «Hanabi: black sparkling fitted dress».">${sanitizeForHtml(settings.novelaiVisualContextManual || '')}</textarea>
+                <div class="hint">✿ Visual DNA: отдельные теги внешности и одежды для каждого чата и NPC. Библиотека и референсы не меняются.</div>
+                <div class="iig-debug-actions"><div id="iig_edit_visual_dna" class="menu_button iig-button-inline"><i class="fa-solid fa-users"></i> ✿ Персонажи и NPC · теги этого чата</div></div>
                 <div class="iig-debug-actions">
                     <div id="iig_show_visual_context_top" class="menu_button iig-button-inline"><i class="fa-solid fa-eye"></i> Посмотреть / изменить контекст</div>
                     <div id="iig_reset_visual_context_edit" class="menu_button iig-button-inline"><i class="fa-solid fa-rotate-left"></i> Сбросить правку</div>
@@ -1215,6 +1220,30 @@ async function showIigVisualContextSourceDiagnosticPopup() {
     const rendered = await renderIigVisualContextSourceDiagnostic();
     const body = `<p class="hint">Это локальная диагностика. Она ничего не отправляет модели и не тратит токены. Нужен один скрин, чтобы привязать сборщик к реальным полям SillyTavern.</p><textarea class="text_pole" rows="22" readonly style="width:100%;min-height:420px;white-space:pre-wrap;">${sanitizeForHtml(rendered)}</textarea>`;
     await Popup.show.text('🩺 Visual Context — источники', body, { allowVerticalScrolling: true, wide: true });
+}
+
+async function showIigVisualDnaPopup() {
+    const key = getIigVisualDnaChatKey();
+    if (!key) {
+        toastr.warning('Откройте сохранённый чат: без его ID теги не записываются, чтобы не смешивать истории.');
+        return;
+    }
+    const entries = getIigVisualDnaEntries();
+    const body = `<p class="hint">Только этот чат. Каждая строка: <b>Имя | теги внешности | теги одежды</b>. Одежду можно оставить пустой. Для NPC тоже работает. Данные сохраняются локально при изменении. Макрос {{iig-visual-context}} добавит их без нового API-запроса.</p>
+      <textarea id="iig_visual_dna_editor" class="text_pole" rows="14" style="width:100%;min-height:280px;white-space:pre-wrap" placeholder="Dmitry Samoilov | 1boy, black wavy hair, light blue eyes, tall | grey sweater\nNPC Name | silver hair, amber eyes | dark cloak">${sanitizeForHtml(entries.map(x => [x.name, x.appearance, x.outfit].join(' | ')).join('\n'))}</textarea>
+      <p class="hint">Не вставляй символ | внутри тегов. Профили не переносятся в другие чаты автоматически. После сохранения открой «Посмотреть / изменить контекст», чтобы проверить, что модель получит.</p>`;
+    const popupPromise = Popup.show.text('✿ Visual DNA — персонажи этого чата', body, { allowVerticalScrolling: true, wide: true });
+    setTimeout(() => {
+        const editor = document.getElementById('iig_visual_dna_editor');
+        editor?.addEventListener('input', () => {
+            const rows = editor.value.split(/\n/).map(line => {
+                const parts = line.split('|');
+                return { name: (parts[0] || '').trim(), appearance: (parts[1] || '').trim(), outfit: (parts[2] || '').trim() };
+            }).filter(x => x.name);
+            saveIigVisualDnaEntries(rows);
+        });
+    }, 50);
+    await popupPromise;
 }
 
 async function showIigVisualContextPreviewPopup() {
@@ -2841,6 +2870,7 @@ function bindDebugSectionEvents(settings) {
         settings.novelaiVisualContextManual = String(e.target.value || '');
         saveSettings();
     });
+    document.getElementById('iig_edit_visual_dna')?.addEventListener('click', showIigVisualDnaPopup);
     document.getElementById('iig_show_visual_context')?.addEventListener('click', showIigVisualContextPreviewPopup);
     document.getElementById('iig_visual_context_source_diag')?.addEventListener('click', showIigVisualContextSourceDiagnosticPopup);
     document.getElementById('iig_show_visual_context_top')?.addEventListener('click', showIigVisualContextPreviewPopup);
