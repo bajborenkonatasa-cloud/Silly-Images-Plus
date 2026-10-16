@@ -2814,3 +2814,9 @@ body.iig-actions-hidden .iig-img-actions {
     gap: 6px;
     margin-bottom: 8px;
 }
+
+/* Provider organization for saved prompt presets; no changes to provider routing. */
+.iig-provider-group-tabs{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0 12px}
+.iig-provider-group-tabs .menu_button{font-size:12px!important;min-height:34px!important;padding:5px 9px!important;flex:1 1 auto;border-radius:12px!important}
+.iig-provider-group-tabs .menu_button.selected{border-color:#bb86ed!important;background:rgba(150,85,205,.22)!important}
+#iig_style_group{width:100%;min-height:36px}

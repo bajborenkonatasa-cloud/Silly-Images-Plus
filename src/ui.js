@@ -625,6 +625,26 @@ let selectedStyleId = '';
 let styleSearchQuery = '';
 let styleLibraryTab = 'styles';
 const styleLibraryStates = { styles: {}, negativePrompts: {} };
+// UI-only grouping. Existing preset data and provider selection are untouched.
+const STYLE_GROUPS = [
+    ['all', 'Все'], ['novelai', '✦ NovelAI'], ['banana', '🍌 Nano Banana'],
+    ['other', '✧ Другие (GPT / Grok)'], ['unsorted', 'Без категории'],
+];
+let styleGroupFilter = 'all';
+const STYLE_GROUP_STORE = 'iig-style-provider-groups-v1';
+function styleGroupMap() {
+    try { const data = JSON.parse(localStorage.getItem(STYLE_GROUP_STORE) || '{}'); return data && typeof data === 'object' && !Array.isArray(data) ? data : {}; }
+    catch { return {}; }
+}
+function styleGroupOf(styleId) { return styleGroupMap()[styleId] || 'unsorted'; }
+function assignStyleGroup(styleId, group) {
+    if (!STYLE_GROUPS.some(([id]) => id === group) || group === 'all') return;
+    const data = styleGroupMap();
+    if (group === 'unsorted') delete data[styleId]; else data[styleId] = group;
+    try { localStorage.setItem(STYLE_GROUP_STORE, JSON.stringify(data)); }
+    catch (e) { console.warn('[IIG] Cannot save style grouping', e); }
+}
+
 
 function activeStyleKey() { return getPromptLibraryActiveKey(styleLibraryTab); }
 
@@ -636,10 +656,11 @@ function getStyleLibraryLabels() {
 
 function getSelectedStyle(settings = getSettings()) {
     const styles = ensureStyles(settings, styleLibraryTab);
-    if (!styles.some((style) => style.id === selectedStyleId)) {
-        selectedStyleId = styles.find((style) => style.id === settings[activeStyleKey()])?.id || styles[0]?.id || '';
+    const visible = styles.filter(style => styleGroupFilter === 'all' || styleGroupOf(style.id) === styleGroupFilter);
+    if (!visible.some((style) => style.id === selectedStyleId)) {
+        selectedStyleId = visible.find((style) => style.id === settings[activeStyleKey()])?.id || visible[0]?.id || '';
     }
-    return styles.find((style) => style.id === selectedStyleId) || null;
+    return visible.find((style) => style.id === selectedStyleId) || null;
 }
 
 function getStylePreview(value) {
@@ -658,7 +679,7 @@ function buildStyleListHtml(settings = getSettings()) {
             <i class="fa-solid fa-magnifying-glass"></i>
             <input id="iig_style_search" class="text_pole" type="search" value="${sanitizeForHtml(styleSearchQuery)}" placeholder="${labels.search}">
         </label>` : '';
-    const rowsHtml = styles.map((style) => `
+    const rowsHtml = styles.filter(style => styleGroupFilter === 'all' || styleGroupOf(style.id) === styleGroupFilter).map((style) => `
         <div class="iig-style-item ${style.id === activeId ? 'active' : ''} ${style.id === selectedStyleId ? 'selected' : ''}" data-style-id="${sanitizeForHtml(style.id)}" data-style-search="${sanitizeForHtml(`${style.name} ${style.value}`.toLowerCase())}">
             <button type="button" class="menu_button iig-style-activation" data-style-activate="${sanitizeForHtml(style.id)}" title="${style.id === activeId ? t`Disable` : t`Activate`}">
                 <i class="fa-solid ${style.id === activeId ? 'fa-circle-check' : 'fa-circle'}"></i>
@@ -673,7 +694,9 @@ function buildStyleListHtml(settings = getSettings()) {
             </div>
         </div>`).join('');
 
+    const groupTabs = `<div class="iig-provider-group-tabs" role="group" aria-label="Фильтр стилей по генератору">${STYLE_GROUPS.map(([id,label]) => `<button type="button" class="menu_button ${styleGroupFilter === id ? 'selected' : ''}" data-style-group-filter="${id}" aria-pressed="${styleGroupFilter === id}">${label}</button>`).join('')}</div>`;
     return `
+        ${groupTabs}
         ${searchHtml}
         <div class="iig-style-list">
             <button type="button" class="menu_button iig-style-none" data-style-disable aria-pressed="${!activeId}">
@@ -700,6 +723,10 @@ function buildStyleEditorHtml(settings = getSettings()) {
             <label class="iig-style-field" for="iig_style_name">
                 <span>${t`Name`}</span>
                 <input type="text" id="iig_style_name" class="text_pole" value="${sanitizeForHtml(selectedStyle.name)}">
+            </label>
+            <label class="iig-style-field" for="iig_style_group">
+                <span>✿ Генератор · только для сортировки</span>
+                <select id="iig_style_group" class="text_pole">${STYLE_GROUPS.filter(([id]) => id !== 'all').map(([id,label]) => `<option value="${id}" ${styleGroupOf(selectedStyle.id) === id ? 'selected' : ''}>${label}</option>`).join('')}</select>
             </label>
             <label class="iig-style-field" for="iig_style_value">
                 <span>${getStyleLibraryLabels().name}</span>
@@ -1224,23 +1251,39 @@ async function showIigVisualContextSourceDiagnosticPopup() {
 
 async function showIigVisualDnaPopup() {
     const key = getIigVisualDnaChatKey();
-    if (!key) {
-        toastr.warning('Откройте сохранённый чат: без его ID теги не записываются, чтобы не смешивать истории.');
-        return;
-    }
+    if (!key) { toastr.warning('Сначала открой сохранённый чат, чтобы не смешивать истории.'); return; }
     const entries = getIigVisualDnaEntries();
-    const body = `<p class="hint">Только этот чат. Каждая строка: <b>Имя | теги внешности | теги одежды</b>. Одежду можно оставить пустой. Для NPC тоже работает. Данные сохраняются локально при изменении. Макрос {{iig-visual-context}} добавит их без нового API-запроса.</p>
-      <textarea id="iig_visual_dna_editor" class="text_pole" rows="14" style="width:100%;min-height:280px;white-space:pre-wrap" placeholder="Dmitry Samoilov | 1boy, black wavy hair, light blue eyes, tall | grey sweater\nNPC Name | silver hair, amber eyes | dark cloak">${sanitizeForHtml(entries.map(x => [x.name, x.appearance, x.outfit].join(' | ')).join('\n'))}</textarea>
-      <p class="hint">Не вставляй символ | внутри тегов. Профили не переносятся в другие чаты автоматически. После сохранения открой «Посмотреть / изменить контекст», чтобы проверить, что модель получит.</p>`;
-    const popupPromise = Popup.show.text('✿ Visual DNA — персонажи этого чата', body, { allowVerticalScrolling: true, wide: true });
+    const card = (entry = {}) => `<div class="iig-dna-card" style="border:1px solid #516078;border-radius:12px;padding:12px;margin:10px 0">
+        <label class="iig-style-field">✿ Имя персонажа / NPC<input class="text_pole" data-dna-field="name" value="${sanitizeForHtml(entry.name || '')}" placeholder="Например, Дмитрий Самойлов"></label>
+        <label class="iig-style-field">✧ Постоянная внешность · теги NovelAI<textarea class="text_pole" data-dna-field="appearance" rows="3" placeholder="black wavy hair, light blue eyes...">${sanitizeForHtml(entry.appearance || '')}</textarea></label>
+        <label class="iig-style-field">♡ Одежда · для этого чата<textarea class="text_pole" data-dna-field="outfit" rows="2" placeholder="grey sweater, black trousers...">${sanitizeForHtml(entry.outfit || '')}</textarea></label>
+        <button type="button" class="menu_button iig-dna-remove" style="font-size:12px"><i class="fa-solid fa-trash"></i> Удалить эту запись</button>
+    </div>`;
+    const body = `<p class="hint">✿ Паспорта только для текущего чата. Заполняй обычные поля — никаких символов |. Данные сохраняются автоматически, без дополнительных запросов модели. До 24 персонажей и NPC.</p>
+      <div id="iig_dna_cards">${entries.map(card).join('')}</div>
+      <button type="button" class="menu_button" id="iig_dna_add"><i class="fa-solid fa-plus"></i> Добавить персонажа / NPC</button>
+      <p class="hint">После изменения проверь «Посмотреть / изменить контекст». Ручные теги добавляются в {{iig-visual-context}}.</p>`;
+    const popupPromise = Popup.show.text('✿ Visual DNA — паспорта этого чата', body, { allowVerticalScrolling: true, wide: true });
     setTimeout(() => {
-        const editor = document.getElementById('iig_visual_dna_editor');
-        editor?.addEventListener('input', () => {
-            const rows = editor.value.split(/\n/).map(line => {
-                const parts = line.split('|');
-                return { name: (parts[0] || '').trim(), appearance: (parts[1] || '').trim(), outfit: (parts[2] || '').trim() };
-            }).filter(x => x.name);
+        const list = document.getElementById('iig_dna_cards');
+        if (!list) return;
+        const persist = () => {
+            const rows = [...list.querySelectorAll('.iig-dna-card')].map(node => {
+                const value = field => node.querySelector(`[data-dna-field="${field}"]`)?.value?.trim() || '';
+                return { name: value('name'), appearance: value('appearance'), outfit: value('outfit') };
+            }).filter(row => row.name);
             saveIigVisualDnaEntries(rows);
+        };
+        list.addEventListener('input', persist);
+        list.addEventListener('click', event => {
+            if (!event.target.closest('.iig-dna-remove')) return;
+            event.target.closest('.iig-dna-card')?.remove();
+            persist();
+        });
+        document.getElementById('iig_dna_add')?.addEventListener('click', () => {
+            if (list.querySelectorAll('.iig-dna-card').length >= 24) { toastr.warning('Максимум 24 записи.'); return; }
+            list.insertAdjacentHTML('beforeend', card());
+            list.lastElementChild?.querySelector('[data-dna-field="name"]')?.focus();
         });
     }, 50);
     await popupPromise;
@@ -2167,6 +2210,7 @@ async function createStyleFromPrompt(settings) {
     const normalizedName = String(name || '').trim();
     if (!normalizedName) return;
     const style = createStyle(normalizedName, styleLibraryTab);
+    if (styleGroupFilter !== 'all') assignStyleGroup(style.id, styleGroupFilter);
     selectedStyleId = style.id;
     saveSettings();
     renderStyleSettings();
@@ -2178,6 +2222,7 @@ function duplicateStyleById(styleId, settings) {
     if (!source) return;
     const copy = createStyle(t`Copy of ${source.name}`, styleLibraryTab);
     updateStyle(copy.id, { value: source.value }, styleLibraryTab);
+    assignStyleGroup(copy.id, styleGroupOf(source.id));
     selectedStyleId = copy.id;
     saveSettings();
     renderStyleSettings();
@@ -2198,6 +2243,22 @@ async function deleteStyleById(styleId, settings) {
 }
 
 function bindStylesSectionEvents(settings) {
+    document.getElementById('iig_style_presets')?.addEventListener('click', (event) => {
+        const button = event.target instanceof Element ? event.target.closest('[data-style-group-filter]') : null;
+        if (!button) return;
+        styleGroupFilter = button.getAttribute('data-style-group-filter') || 'all';
+        selectedStyleId = '';
+        renderStyleSettings();
+    });
+    document.getElementById('iig_style_editor')?.addEventListener('change', (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLSelectElement) || target.id !== 'iig_style_group') return;
+        const selected = getSelectedStyle(settings);
+        if (!selected) return;
+        assignStyleGroup(selected.id, target.value);
+        renderStyleSettings();
+    });
+
     document.querySelector('.iig-prompt-library-tabs')?.addEventListener('click', (event) => {
         const tab = event.target.closest('[data-style-library]');
         const next = tab?.dataset.styleLibrary;
