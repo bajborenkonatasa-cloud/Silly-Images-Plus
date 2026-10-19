@@ -261,6 +261,7 @@ function buildApiSettingsSectionHtml(settings = getSettings()) {
             <div id="iig_pixai_panel" class="iig-novelai-precise-panel ${settings.apiType === 'pixai' ? '' : 'iig-hidden'}">
                 <div class="iig-novelai-precise-title"><strong>🎨 PixAI · official API</strong><span>v2</span></div>
                 <p class="hint">Endpoint: https://api.pixai.art · Use your PixAI API key above. Models: Tsubaki.2 / Haruka v2 / Hoshino v2. Custom model version IDs can be entered in the model field using Raw endpoint mode, but leave endpoint as official PixAI.</p>
+                <details class="iig-pixai-fold" open><summary>🖼️ Основные настройки · формат, качество, стиль</summary>
                 <div class="flex-row"><label>Aspect ratio</label><select id="iig_pixai_ratio" class="flex1">${['1:1','2:3','3:2','3:4','4:3','9:16','16:9'].map(x=>`<option value="${x}" ${settings.pixaiAspectRatio===x?'selected':''}>${x}</option>`).join('')}</select></div>
                 <div class="flex-row"><label>Size</label><select id="iig_pixai_size" class="flex1"><option value="1k" ${settings.pixaiSize!=='1.5k'?'selected':''}>1k</option><option value="1.5k" ${settings.pixaiSize==='1.5k'?'selected':''}>1.5k</option></select></div>
                 <div class="flex-row"><label>Tsubaki mode</label><select id="iig_pixai_mode" class="flex1">${['lite','standard','pro','ultra'].map(x=>`<option value="${x}" ${settings.pixaiMode===x?'selected':''}>${x}</option>`).join('')}</select></div>
@@ -269,14 +270,19 @@ function buildApiSettingsSectionHtml(settings = getSettings()) {
                 <div class="flex-row"><label>Art style</label><select id="iig_pixai_style" class="flex1">${[['none','None (scene only)'],['soft','Soft romance'],['fantasy','Fantasy painterly'],['cinematic','Cinematic action'],['modern','Modern anime'],['watercolor','Watercolor']].map(([id,name])=>`<option value="${id}" ${settings.pixaiStylePreset===id?'selected':''}>${name}</option>`).join('')}</select></div>
                 <div class="flex-row"><label>Extra style tags</label><textarea id="iig_pixai_style_custom" class="text_pole textarea_compact flex1" rows="2" placeholder="Optional English art-style description">${sanitizeForHtml(settings.pixaiStyleCustom||'')}</textarea></div>
                 <p class="hint">Preset styles are safe text prefixes; no extra API field is required. Keep identity and clothing in Visual DNA.</p>
+                </details>
+                <details class="iig-pixai-fold"><summary>⚙️ Дополнительно · Seed, Sampler, Steps</summary>
                 <div class="flex-row"><label>Seed (optional)</label><input id="iig_pixai_seed" class="text_pole flex1" type="number" min="0" step="1" placeholder="Random" value="${sanitizeForHtml(settings.pixaiSeed||'')}"></div>
                 <div class="flex-row"><label>SDXL sampler</label><select id="iig_pixai_sampler" class="flex1">${['default','Euler a','Euler','DDIM','DPM++ 2M Karras','DPM++ SDE Karras'].map(x=>`<option value="${x}" ${settings.pixaiSamplingMethod===x?'selected':''}>${x}</option>`).join('')}</select></div>
                 <div class="flex-row"><label>SDXL steps</label><input id="iig_pixai_steps" class="text_pole flex1" type="number" min="1" max="100" placeholder="Model default" value="${sanitizeForHtml(settings.pixaiSamplingSteps||'')}"></div>
                 <p class="hint">Tsubaki.2 uses Lite / Standard / Pro / Ultra instead of manual sampler/steps. Sampler and steps are for Haruka / Hoshino (SDXL) only.</p>
+                </details>
+                <details class="iig-pixai-fold"><summary>🧩 LoRA · до 5 подключений</summary>
                 <div class="iig-novelai-precise-title"><strong>🧩 LoRA slots</strong><span>max 5</span></div>
                 ${Array.from({length:5},(_,i)=>{const l=(settings.pixaiLoras||[])[i]||{};return `<div class="iig-pixai-lora-row"><label><input type="checkbox" data-pixai-lora="${i}" data-field="enabled" ${l.enabled?'checked':''}> LoRA ${i+1}</label><input class="text_pole" data-pixai-lora="${i}" data-field="id" placeholder="PixAI version ID or URL" value="${sanitizeForHtml(l.id||'')}"><input class="text_pole" data-pixai-lora="${i}" data-field="weight" type="number" min="-2" max="2" step="0.1" value="${Number.isFinite(Number(l.weight))&&l.weight!==undefined?Number(l.weight):0.7}" title="Weight"><input class="text_pole" data-pixai-lora="${i}" data-field="trigger" placeholder="Trigger tags (optional)" value="${sanitizeForHtml(l.trigger||'')}"></div>`}).join('')}
                 <p class="hint">Choose a LoRA trained for your model. Paste its version URL or ID, set weight around 0.7, and enable it. Trigger words are optional.</p>
                 <details><summary>Advanced · Official API style JSON</summary><textarea id="iig_pixai_api_style" class="text_pole textarea_compact flex1" rows="2" placeholder='Optional API style object JSON'>${sanitizeForHtml(settings.pixaiApiStyleJson||'')}</textarea><p class="hint">Leave empty unless you know the official style object schema. Incorrect JSON can cause a 400 error.</p></details>
+                </details>
                 <p class="hint">One image per request. Prompt helper disabled to preserve your Visual DNA. Image references are not supported by this PixAI integration.</p>
             </div>
             <div id="iig_novelai_precise_panel" class="iig-novelai-precise-panel ${settings.apiType === 'novelai' ? '' : 'iig-hidden'}">
@@ -1705,6 +1711,15 @@ function bindApiSectionEvents(settings, updateVisibility) {
     document.getElementById('iig_novelai_sampler')?.addEventListener('change', (e) => { settings.novelaiSampler = e.target.value; captureNovelAiProfile(); saveSettings(); });
     document.getElementById('iig_novelai_noise')?.addEventListener('change', (e) => { settings.novelaiNoiseSchedule = e.target.value; captureNovelAiProfile(); saveSettings(); });
     document.getElementById('iig_novelai_negative_prompt')?.addEventListener('input', (e) => { settings.novelaiNegativePrompt = String(e.target.value || ''); saveSettings(); });
+
+    document.getElementById('iig_api_key')?.addEventListener('blur', () => {
+        // Commit the key before switching pages on mobile; scoped to this SillyTavern origin.
+        const ctx = SillyTavern.getContext();
+        saveSettings();
+        if (typeof ctx.saveSettingsDebounced?.flush === 'function') {
+            Promise.resolve(ctx.saveSettingsDebounced.flush()).catch(() => {});
+        }
+    });
 
     document.getElementById('iig_api_key')?.addEventListener('change', () => {
         if (settings.apiType === 'naistera') {

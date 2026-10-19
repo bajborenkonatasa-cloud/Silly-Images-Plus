@@ -2853,3 +2853,10 @@ body.iig-actions-hidden .iig-img-actions {
 .iig-pixai-lora-row .text_pole{min-width:0;width:100%;box-sizing:border-box}
 .iig-pixai-lora-row label{font-size:.86em}
 @media(max-width:450px){.iig-pixai-lora-row{grid-template-columns:66px minmax(0,1fr) 58px;gap:4px}}
+
+/* PixAI Studio v3: compact, touch-friendly mobile groups */
+.iig-pixai-fold{margin:10px 0;border:1px solid rgba(125,146,220,.35);border-radius:12px;padding:8px 10px}
+.iig-pixai-fold>summary{cursor:pointer;font-weight:650;line-height:1.5;padding:5px 2px;list-style:revert}
+.iig-pixai-fold[open]>summary{margin-bottom:10px}
+.iig-pixai-fold .flex-row{flex-wrap:wrap}
+.iig-pixai-fold .text_pole,.iig-pixai-fold select{max-width:100%}
