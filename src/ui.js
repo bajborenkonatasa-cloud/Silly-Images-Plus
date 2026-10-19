@@ -277,6 +277,12 @@ function buildApiSettingsSectionHtml(settings = getSettings()) {
                 <div class="flex-row"><label>SDXL steps</label><input id="iig_pixai_steps" class="text_pole flex1" type="number" min="1" max="100" placeholder="Model default" value="${sanitizeForHtml(settings.pixaiSamplingSteps||'')}"></div>
                 <p class="hint">Tsubaki.2 / Tsubaki.3 use Lite / Standard / Pro / Ultra instead of manual sampler/steps. Sampler and steps are for Haruka / Hoshino (SDXL) only.</p>
                 </details>
+                <details class="iig-pixai-fold"><summary>📚 PixAI · библиотека стилей</summary>
+                <p class="hint">Presets store model, quality, style text and up to 5 LoRAs. The first example contains PixAI model-page URLs; API version IDs are NOT verified. Presets are not applied until you press Apply.</p>
+                <div class="flex-row"><select id="iig_pixai_preset_select" class="flex1"></select></div>
+                <div class="flex-row"><button type="button" id="iig_pixai_preset_apply" class="menu_button">Apply selected</button><button type="button" id="iig_pixai_preset_save" class="menu_button">Save current as…</button><button type="button" id="iig_pixai_preset_delete" class="menu_button">Delete selected</button></div>
+                <p class="hint" id="iig_pixai_preset_status">Choose a preset, then Apply. Saved locally with extension settings.</p>
+                </details>
                 <details class="iig-pixai-fold"><summary>🧩 LoRA · до 5 подключений</summary>
                 <div class="iig-novelai-precise-title"><strong>🧩 LoRA slots</strong><span>max 5</span></div>
                 ${Array.from({length:5},(_,i)=>{const l=(settings.pixaiLoras||[])[i]||{};return `<div class="iig-pixai-lora-row"><label><input type="checkbox" data-pixai-lora="${i}" data-field="enabled" ${l.enabled?'checked':''}> LoRA ${i+1}</label><input class="text_pole" data-pixai-lora="${i}" data-field="id" placeholder="PixAI version ID or URL" value="${sanitizeForHtml(l.id||'')}"><input class="text_pole" data-pixai-lora="${i}" data-field="weight" type="number" min="-2" max="2" step="0.1" value="${Number.isFinite(Number(l.weight))&&l.weight!==undefined?Number(l.weight):0.7}" title="Weight"><input class="text_pole" data-pixai-lora="${i}" data-field="trigger" placeholder="Trigger tags (optional)" value="${sanitizeForHtml(l.trigger||'')}"></div>`}).join('')}
@@ -1598,6 +1604,77 @@ function bindApiSectionEvents(settings, updateVisibility) {
     for (const [id, key] of [['iig_pixai_style','pixaiStylePreset'],['iig_pixai_style_custom','pixaiStyleCustom'],['iig_pixai_api_style','pixaiApiStyleJson'],['iig_pixai_seed','pixaiSeed'],['iig_pixai_sampler','pixaiSamplingMethod'],['iig_pixai_steps','pixaiSamplingSteps']]) {
         document.getElementById(id)?.addEventListener('change', (e) => { settings[key] = e.target.value; saveSettings(); });
     }
+    // PixAI style library. Never apply the bundled example implicitly: the public
+    // model-page URLs are not confirmed API model-version identifiers.
+    const pixaiBundledPreset = {
+        name: 'Niji Painterly · Curiousme (API IDs unverified)',
+        model: '1983308862240288769', mode: 'lite', ratio: '3:4', size: '1k',
+        stylePreset: 'none', styleCustom: 'nijijourney painterly semi-realistic digital illustration, loose gestural brushwork, no hard lineart, warm amber cinematic lighting, deep shadow contrast, textured voluminous hair',
+        loras: [
+            {enabled:true,id:'https://pixai.art/model/1861038170929442008',weight:0.5,trigger:'Detailed Semi-Realistic females, oil painting, Niji Journey style, manwha style'},
+            {enabled:true,id:'https://pixai.art/model/1976495020612615588',weight:0.1,trigger:''},
+            {enabled:true,id:'https://pixai.art/model/1994968616654849974',weight:0.7,trigger:''},
+        ],
+    };
+    const pixaiPresetSelect = document.getElementById('iig_pixai_preset_select');
+    const pixaiPresetStatus = document.getElementById('iig_pixai_preset_status');
+    const getPixaiPresets = () => [pixaiBundledPreset, ...(Array.isArray(settings.pixaiStyleLibrary) ? settings.pixaiStyleLibrary : [])];
+    const refreshPixaiPresets = (selected = pixaiPresetSelect?.value || '0') => {
+        if (!pixaiPresetSelect) return;
+        pixaiPresetSelect.replaceChildren();
+        getPixaiPresets().forEach((preset, index) => {
+            const option = document.createElement('option');
+            option.value = String(index); option.textContent = preset.name;
+            pixaiPresetSelect.appendChild(option);
+        });
+        pixaiPresetSelect.value = selected;
+        if (pixaiPresetSelect.selectedIndex < 0) pixaiPresetSelect.selectedIndex = 0;
+    };
+    refreshPixaiPresets();
+    document.getElementById('iig_pixai_preset_apply')?.addEventListener('click', () => {
+        const preset = getPixaiPresets()[Number(pixaiPresetSelect.value)];
+        if (!preset) return;
+        settings.pixaiMode = preset.mode || 'lite';
+        settings.pixaiAspectRatio = preset.ratio || '3:4';
+        settings.pixaiSize = preset.size || '1k';
+        settings.pixaiStylePreset = preset.stylePreset || 'none';
+        settings.pixaiStyleCustom = preset.styleCustom || '';
+        settings.pixaiLoras = Array.from({length:5}, (_,i) => ({enabled:false,id:'',weight:0.7,trigger:'',...(preset.loras?.[i]||{})}));
+        if (preset.model) {
+            if (!settings.modelsByApiType) settings.modelsByApiType = {};
+            settings.modelsByApiType.pixai = preset.model;
+            settings.model = preset.model;
+            syncModelInputs(settings.model);
+        }
+        saveSettings();
+        for (const [id,value] of [['iig_pixai_mode',settings.pixaiMode],['iig_pixai_ratio',settings.pixaiAspectRatio],['iig_pixai_size',settings.pixaiSize],['iig_pixai_style',settings.pixaiStylePreset],['iig_pixai_style_custom',settings.pixaiStyleCustom]]) {
+            const field = document.getElementById(id); if (field) field.value = value;
+        }
+        document.querySelectorAll('[data-pixai-lora]').forEach(el => {
+            const entry = settings.pixaiLoras[Number(el.dataset.pixaiLora)];
+            if (!entry) return;
+            if (el.dataset.field === 'enabled') el.checked = !!entry.enabled;
+            else el.value = entry[el.dataset.field] ?? '';
+        });
+        if (pixaiPresetStatus) pixaiPresetStatus.textContent = 'Applied: ' + preset.name + '. Check LoRA version IDs before API generation.';
+    });
+    document.getElementById('iig_pixai_preset_save')?.addEventListener('click', () => {
+        const name = window.prompt('Name for this PixAI style preset:');
+        if (!name?.trim()) return;
+        if (!Array.isArray(settings.pixaiStyleLibrary)) settings.pixaiStyleLibrary = [];
+        if (settings.pixaiStyleLibrary.length >= 40) { if (pixaiPresetStatus) pixaiPresetStatus.textContent = 'Maximum 40 custom presets.'; return; }
+        settings.pixaiStyleLibrary.push({name:name.trim().slice(0,80), model:String(settings.modelsByApiType?.pixai || settings.model || ''),mode:settings.pixaiMode,ratio:settings.pixaiAspectRatio,size:settings.pixaiSize,stylePreset:settings.pixaiStylePreset,styleCustom:settings.pixaiStyleCustom,loras:JSON.parse(JSON.stringify((settings.pixaiLoras||[]).slice(0,5)))});
+        saveSettings(); refreshPixaiPresets(String(settings.pixaiStyleLibrary.length));
+        if (pixaiPresetStatus) pixaiPresetStatus.textContent = 'Saved to local settings.';
+    });
+    document.getElementById('iig_pixai_preset_delete')?.addEventListener('click', () => {
+        const index = Number(pixaiPresetSelect?.value);
+        if (!Number.isInteger(index) || index < 1) { if (pixaiPresetStatus) pixaiPresetStatus.textContent = 'The bundled example cannot be deleted.'; return; }
+        if (!window.confirm('Delete selected PixAI preset?')) return;
+        settings.pixaiStyleLibrary?.splice(index-1,1);
+        saveSettings(); refreshPixaiPresets('0');
+        if (pixaiPresetStatus) pixaiPresetStatus.textContent = 'Deleted.';
+    });
     document.querySelectorAll('[data-pixai-lora]').forEach(el => el.addEventListener('change', () => {
         const index = Number(el.dataset.pixaiLora), field = el.dataset.field;
         if (!Array.isArray(settings.pixaiLoras)) settings.pixaiLoras = [];
