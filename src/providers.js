@@ -2830,6 +2830,7 @@ export class NovelAiProvider extends Provider {
 
 // ----- PixAI official v2 API (async task + polling) -----
 const PIXAI_MODELS = [
+    '2024383379556065549', // Tsubaki.3 (experimental API access; verify with live key)
     '1983308862240288769', // Tsubaki.2
     '1861558740588989558', // Haruka v2
     '1954632828118619567', // Hoshino v2
@@ -2847,7 +2848,7 @@ class PixAiProvider extends Provider {
         return errors;
     }
     async fetchModels() { return PIXAI_MODELS; }
-    getModelLabel(id) { return ({ '1983308862240288769': 'Tsubaki.2', '1861558740588989558': 'Haruka v2', '1954632828118619567': 'Hoshino v2' })[id] || id; }
+    getModelLabel(id) { return ({ '2024383379556065549': 'Tsubaki.3 (API experimental)', '1983308862240288769': 'Tsubaki.2', '1861558740588989558': 'Haruka v2', '1954632828118619567': 'Hoshino v2' })[id] || id; }
     async generate({ prompt, style, options = {} }) {
         const s = getSettings();
         const key = String(s.apiKey || '').trim();
@@ -2855,7 +2856,7 @@ class PixAiProvider extends Provider {
         const headers = { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' };
         const signal = options.signal;
         const modelVersionId = String(s.model || '').trim();
-        const tsubaki = modelVersionId === '1983308862240288769';
+        const tsubaki = ['1983308862240288769', '2024383379556065549'].includes(modelVersionId);
         const ratio = String(s.pixaiAspectRatio || '1:1');
         const body = {
             modelVersionId,
@@ -2920,7 +2921,7 @@ class PixAiProvider extends Provider {
         }
         if (String(s.pixaiNegativePrompt || '').trim()) body.negativePrompt = String(s.pixaiNegativePrompt).trim();
         const post = await fetch('https://api.pixai.art/v2/image/create', { method: 'POST', headers, body: JSON.stringify(body), signal });
-        if (!post.ok) throw new Error(`PixAI create failed (HTTP ${post.status}): ${(await post.text()).slice(0, 250)}`);
+        if (!post.ok) { const detail = (await post.text()).slice(0, 350); throw new Error(`PixAI create failed (HTTP ${post.status})${modelVersionId === '2024383379556065549' ? ' — Tsubaki.3 may not be enabled for this API key; try Tsubaki.2' : ''}: ${detail}`); }
         const created = await post.json();
         if (!created?.id) throw new Error('PixAI did not return a task ID');
         const deadline = Date.now() + 180000;

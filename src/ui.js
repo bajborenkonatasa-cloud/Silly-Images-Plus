@@ -260,7 +260,7 @@ function buildApiSettingsSectionHtml(settings = getSettings()) {
             <p id="iig_novelai_hint" class="hint ${settings.apiType === 'novelai' ? '' : 'iig-hidden'}">${t`Calls NovelAI's official image API directly from your browser using the API key above — separate from SillyTavern's own built-in NovelAI connection, and from any other provider's key on this page. Get your key on novelai.net → Settings → Account → Get Persistent API Token.`}</p>
             <div id="iig_pixai_panel" class="iig-novelai-precise-panel ${settings.apiType === 'pixai' ? '' : 'iig-hidden'}">
                 <div class="iig-novelai-precise-title"><strong>🎨 PixAI · official API</strong><span>v2</span></div>
-                <p class="hint">Endpoint: https://api.pixai.art · Use your PixAI API key above. Models: Tsubaki.2 / Haruka v2 / Hoshino v2. Custom model version IDs can be entered in the model field using Raw endpoint mode, but leave endpoint as official PixAI.</p>
+                <p class="hint">Endpoint: https://api.pixai.art · Use your PixAI API key above. Models: Tsubaki.3 (experimental API), Tsubaki.2, Haruka v2, Hoshino v2. Custom model version IDs can be entered in the model field using Raw endpoint mode, but leave endpoint as official PixAI.</p>
                 <details class="iig-pixai-fold" open><summary>🖼️ Основные настройки · формат, качество, стиль</summary>
                 <div class="flex-row"><label>Aspect ratio</label><select id="iig_pixai_ratio" class="flex1">${['1:1','2:3','3:2','3:4','4:3','9:16','16:9'].map(x=>`<option value="${x}" ${settings.pixaiAspectRatio===x?'selected':''}>${x}</option>`).join('')}</select></div>
                 <div class="flex-row"><label>Size</label><select id="iig_pixai_size" class="flex1"><option value="1k" ${settings.pixaiSize!=='1.5k'?'selected':''}>1k</option><option value="1.5k" ${settings.pixaiSize==='1.5k'?'selected':''}>1.5k</option></select></div>
@@ -275,7 +275,7 @@ function buildApiSettingsSectionHtml(settings = getSettings()) {
                 <div class="flex-row"><label>Seed (optional)</label><input id="iig_pixai_seed" class="text_pole flex1" type="number" min="0" step="1" placeholder="Random" value="${sanitizeForHtml(settings.pixaiSeed||'')}"></div>
                 <div class="flex-row"><label>SDXL sampler</label><select id="iig_pixai_sampler" class="flex1">${['default','Euler a','Euler','DDIM','DPM++ 2M Karras','DPM++ SDE Karras'].map(x=>`<option value="${x}" ${settings.pixaiSamplingMethod===x?'selected':''}>${x}</option>`).join('')}</select></div>
                 <div class="flex-row"><label>SDXL steps</label><input id="iig_pixai_steps" class="text_pole flex1" type="number" min="1" max="100" placeholder="Model default" value="${sanitizeForHtml(settings.pixaiSamplingSteps||'')}"></div>
-                <p class="hint">Tsubaki.2 uses Lite / Standard / Pro / Ultra instead of manual sampler/steps. Sampler and steps are for Haruka / Hoshino (SDXL) only.</p>
+                <p class="hint">Tsubaki.2 / Tsubaki.3 use Lite / Standard / Pro / Ultra instead of manual sampler/steps. Sampler and steps are for Haruka / Hoshino (SDXL) only.</p>
                 </details>
                 <details class="iig-pixai-fold"><summary>🧩 LoRA · до 5 подключений</summary>
                 <div class="iig-novelai-precise-title"><strong>🧩 LoRA slots</strong><span>max 5</span></div>
@@ -283,7 +283,7 @@ function buildApiSettingsSectionHtml(settings = getSettings()) {
                 <p class="hint">Choose a LoRA trained for your model. Paste its version URL or ID, set weight around 0.7, and enable it. Trigger words are optional.</p>
                 <details><summary>Advanced · Official API style JSON</summary><textarea id="iig_pixai_api_style" class="text_pole textarea_compact flex1" rows="2" placeholder='Optional API style object JSON'>${sanitizeForHtml(settings.pixaiApiStyleJson||'')}</textarea><p class="hint">Leave empty unless you know the official style object schema. Incorrect JSON can cause a 400 error.</p></details>
                 </details>
-                <p class="hint">One image per request. Prompt helper disabled to preserve your Visual DNA. Image references are not supported by this PixAI integration.</p>
+                <p class="hint">One image per request. Prompt helper disabled to preserve your Visual DNA. Image-file references are NOT yet supported by the documented PixAI v2 create endpoint. Visual DNA text descriptions ARE included by Scene Blocks. Do not expect uploaded reference photos to be sent to PixAI.</p>
             </div>
             <div id="iig_novelai_precise_panel" class="iig-novelai-precise-panel ${settings.apiType === 'novelai' ? '' : 'iig-hidden'}">
                 <div class="iig-novelai-precise-title"><strong>🌙 Precise Reference</strong><span>V4.5 only</span></div>
