@@ -2866,6 +2866,58 @@ class PixAiProvider extends Provider {
             promptHelper: 'disable', // preserve Visual DNA / user tags
         };
         if (tsubaki) body.mode = ['lite','standard','pro','ultra'].includes(s.pixaiMode) ? s.pixaiMode : 'standard';
+        // PixAI v2: DiT Tsubaki uses mode; SDXL models optionally accept sampling.
+        // Styles are kept separate from scene identity; the built-in curated styles
+        // are textual prefixes for maximum compatibility with the documented API.
+        const presetStyles = {
+            soft: 'soft romantic anime illustration, delicate expressive faces, gentle natural colors',
+            fantasy: 'detailed fantasy anime illustration, painterly atmosphere, elegant historical environment',
+            cinematic: 'cinematic anime illustration, dynamic scene composition, natural dramatic lighting',
+            modern: 'modern anime illustration, crisp clean character design, contemporary setting',
+            watercolor: 'delicate watercolor anime illustration, soft brushwork and subdued color palette',
+        };
+        const preset = presetStyles[s.pixaiStylePreset] || '';
+        const custom = String(s.pixaiStyleCustom || '').trim().slice(0, 500);
+        const styleParts = [preset, custom].filter(Boolean);
+        if (styleParts.length) body.prompt = [styleParts.join(', '), body.prompt].filter(Boolean).join(', ');
+        // Advanced official API style object: user-supplied JSON, disabled by default.
+        // This is optional because PixAI's public docs do not expose all style subfields.
+        if (tsubaki && String(s.pixaiApiStyleJson || '').trim()) {
+            let apiStyle;
+            try { apiStyle = JSON.parse(s.pixaiApiStyleJson); } catch { throw new Error('PixAI Style JSON is invalid'); }
+            if (!apiStyle || typeof apiStyle !== 'object' || Array.isArray(apiStyle)) throw new Error('PixAI Style JSON must be an object');
+            body.style = apiStyle;
+        }
+        const loras = Array.isArray(s.pixaiLoras) ? s.pixaiLoras : [];
+        const parsedLoras = [];
+        for (const entry of loras.slice(0, 5)) {
+            if (!entry?.enabled) continue;
+            const rawId = String(entry.id || '').trim();
+            const id = rawId.match(/(?:pixai\.art\/[^\s]+\/)?(\d{12,24})(?:\/)?$/)?.[1];
+            if (!id) throw new Error('PixAI LoRA needs a numeric version ID or PixAI URL');
+            const weight = Number(entry.weight);
+            if (!Number.isFinite(weight) || weight < -2 || weight > 2) throw new Error('PixAI LoRA weight must be between -2 and 2');
+            if (parsedLoras.some(x => x.modelVersionId === id)) throw new Error('Duplicate PixAI LoRA version');
+            parsedLoras.push({ modelVersionId: id, weight });
+            const trigger = String(entry.trigger || '').trim().slice(0, 200);
+            if (trigger) body.prompt += ', ' + trigger;
+        }
+        if (parsedLoras.length) body.loras = parsedLoras;
+        const seedText = String(s.pixaiSeed ?? '').trim();
+        if (seedText) {
+            const seed = Number(seedText);
+            if (!Number.isSafeInteger(seed) || seed < 0) throw new Error('PixAI seed must be a non-negative integer');
+            body.seed = seed;
+        }
+        if (!tsubaki && s.pixaiSamplingMethod && s.pixaiSamplingMethod !== 'default') {
+            body.sampling = { samplingMethod: String(s.pixaiSamplingMethod) };
+            const stepsText = String(s.pixaiSamplingSteps || '').trim();
+            if (stepsText) {
+                const steps = Number(stepsText);
+                if (!Number.isInteger(steps) || steps < 1 || steps > 100) throw new Error('PixAI sampling steps must be 1–100');
+                body.sampling.steps = steps;
+            }
+        }
         if (String(s.pixaiNegativePrompt || '').trim()) body.negativePrompt = String(s.pixaiNegativePrompt).trim();
         const post = await fetch('https://api.pixai.art/v2/image/create', { method: 'POST', headers, body: JSON.stringify(body), signal });
         if (!post.ok) throw new Error(`PixAI create failed (HTTP ${post.status}): ${(await post.text()).slice(0, 250)}`);

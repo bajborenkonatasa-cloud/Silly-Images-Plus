@@ -265,7 +265,19 @@ function buildApiSettingsSectionHtml(settings = getSettings()) {
                 <div class="flex-row"><label>Size</label><select id="iig_pixai_size" class="flex1"><option value="1k" ${settings.pixaiSize!=='1.5k'?'selected':''}>1k</option><option value="1.5k" ${settings.pixaiSize==='1.5k'?'selected':''}>1.5k</option></select></div>
                 <div class="flex-row"><label>Tsubaki mode</label><select id="iig_pixai_mode" class="flex1">${['lite','standard','pro','ultra'].map(x=>`<option value="${x}" ${settings.pixaiMode===x?'selected':''}>${x}</option>`).join('')}</select></div>
                 <div class="flex-row"><label>Negative tags</label><textarea id="iig_pixai_negative" class="text_pole textarea_compact flex1" rows="2" placeholder="low quality, blurry, extra fingers">${sanitizeForHtml(settings.pixaiNegativePrompt||'')}</textarea></div>
-                <p class="hint">One image per request. Built-in prompt helper disabled to preserve your tags. Tsubaki mode applies only to Tsubaki models. PixAI does not receive avatar references in this version.</p>
+                <div class="iig-novelai-precise-title"><strong>✨ PixAI Studio · Styles & LoRA</strong><span>Beta</span></div>
+                <div class="flex-row"><label>Art style</label><select id="iig_pixai_style" class="flex1">${[['none','None (scene only)'],['soft','Soft romance'],['fantasy','Fantasy painterly'],['cinematic','Cinematic action'],['modern','Modern anime'],['watercolor','Watercolor']].map(([id,name])=>`<option value="${id}" ${settings.pixaiStylePreset===id?'selected':''}>${name}</option>`).join('')}</select></div>
+                <div class="flex-row"><label>Extra style tags</label><textarea id="iig_pixai_style_custom" class="text_pole textarea_compact flex1" rows="2" placeholder="Optional English art-style description">${sanitizeForHtml(settings.pixaiStyleCustom||'')}</textarea></div>
+                <p class="hint">Preset styles are safe text prefixes; no extra API field is required. Keep identity and clothing in Visual DNA.</p>
+                <div class="flex-row"><label>Seed (optional)</label><input id="iig_pixai_seed" class="text_pole flex1" type="number" min="0" step="1" placeholder="Random" value="${sanitizeForHtml(settings.pixaiSeed||'')}"></div>
+                <div class="flex-row"><label>SDXL sampler</label><select id="iig_pixai_sampler" class="flex1">${['default','Euler a','Euler','DDIM','DPM++ 2M Karras','DPM++ SDE Karras'].map(x=>`<option value="${x}" ${settings.pixaiSamplingMethod===x?'selected':''}>${x}</option>`).join('')}</select></div>
+                <div class="flex-row"><label>SDXL steps</label><input id="iig_pixai_steps" class="text_pole flex1" type="number" min="1" max="100" placeholder="Model default" value="${sanitizeForHtml(settings.pixaiSamplingSteps||'')}"></div>
+                <p class="hint">Tsubaki.2 uses Lite / Standard / Pro / Ultra instead of manual sampler/steps. Sampler and steps are for Haruka / Hoshino (SDXL) only.</p>
+                <div class="iig-novelai-precise-title"><strong>🧩 LoRA slots</strong><span>max 5</span></div>
+                ${Array.from({length:5},(_,i)=>{const l=(settings.pixaiLoras||[])[i]||{};return `<div class="iig-pixai-lora-row"><label><input type="checkbox" data-pixai-lora="${i}" data-field="enabled" ${l.enabled?'checked':''}> LoRA ${i+1}</label><input class="text_pole" data-pixai-lora="${i}" data-field="id" placeholder="PixAI version ID or URL" value="${sanitizeForHtml(l.id||'')}"><input class="text_pole" data-pixai-lora="${i}" data-field="weight" type="number" min="-2" max="2" step="0.1" value="${Number.isFinite(Number(l.weight))&&l.weight!==undefined?Number(l.weight):0.7}" title="Weight"><input class="text_pole" data-pixai-lora="${i}" data-field="trigger" placeholder="Trigger tags (optional)" value="${sanitizeForHtml(l.trigger||'')}"></div>`}).join('')}
+                <p class="hint">Choose a LoRA trained for your model. Paste its version URL or ID, set weight around 0.7, and enable it. Trigger words are optional.</p>
+                <details><summary>Advanced · Official API style JSON</summary><textarea id="iig_pixai_api_style" class="text_pole textarea_compact flex1" rows="2" placeholder='Optional API style object JSON'>${sanitizeForHtml(settings.pixaiApiStyleJson||'')}</textarea><p class="hint">Leave empty unless you know the official style object schema. Incorrect JSON can cause a 400 error.</p></details>
+                <p class="hint">One image per request. Prompt helper disabled to preserve your Visual DNA. Image references are not supported by this PixAI integration.</p>
             </div>
             <div id="iig_novelai_precise_panel" class="iig-novelai-precise-panel ${settings.apiType === 'novelai' ? '' : 'iig-hidden'}">
                 <div class="iig-novelai-precise-title"><strong>🌙 Precise Reference</strong><span>V4.5 only</span></div>
@@ -1572,6 +1584,16 @@ function bindApiSectionEvents(settings, updateVisibility) {
     for (const [id, key] of [['iig_pixai_ratio','pixaiAspectRatio'],['iig_pixai_size','pixaiSize'],['iig_pixai_mode','pixaiMode'],['iig_pixai_negative','pixaiNegativePrompt']]) {
         document.getElementById(id)?.addEventListener('change', (e) => { settings[key] = e.target.value; saveSettings(); });
     }
+    for (const [id, key] of [['iig_pixai_style','pixaiStylePreset'],['iig_pixai_style_custom','pixaiStyleCustom'],['iig_pixai_api_style','pixaiApiStyleJson'],['iig_pixai_seed','pixaiSeed'],['iig_pixai_sampler','pixaiSamplingMethod'],['iig_pixai_steps','pixaiSamplingSteps']]) {
+        document.getElementById(id)?.addEventListener('change', (e) => { settings[key] = e.target.value; saveSettings(); });
+    }
+    document.querySelectorAll('[data-pixai-lora]').forEach(el => el.addEventListener('change', () => {
+        const index = Number(el.dataset.pixaiLora), field = el.dataset.field;
+        if (!Array.isArray(settings.pixaiLoras)) settings.pixaiLoras = [];
+        while (settings.pixaiLoras.length <= index) settings.pixaiLoras.push({ enabled: false, id: '', weight: 0.7, trigger: '' });
+        settings.pixaiLoras[index][field] = field === 'enabled' ? el.checked : field === 'weight' ? Number(el.value) : el.value;
+        saveSettings();
+    }));
     document.getElementById('iig_endpoint')?.addEventListener('input', (e) => {
         settings.endpoint = e.target.value;
         saveSettings();

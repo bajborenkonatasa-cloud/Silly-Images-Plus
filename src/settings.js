@@ -307,6 +307,13 @@ export const defaultSettings = Object.freeze({
     pixaiSize: '1k',
     pixaiMode: 'standard',
     pixaiNegativePrompt: '',
+    pixaiStylePreset: 'none',
+    pixaiStyleCustom: '',
+    pixaiApiStyleJson: '',
+    pixaiLoras: [],
+    pixaiSeed: '',
+    pixaiSamplingMethod: 'default',
+    pixaiSamplingSteps: '',
     // NovelAI V4.5 Precise Reference defaults. Individual Additional References
     // may override these values in the reference editor.
     novelaiPreciseReferenceMode: 'character',

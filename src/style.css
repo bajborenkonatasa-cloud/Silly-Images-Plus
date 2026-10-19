@@ -2846,3 +2846,10 @@ body.iig-actions-hidden .iig-img-actions {
     .iig-provider-group-tabs { gap: 3px !important; }
     .iig-provider-group-tabs .menu_button { padding: 5px 2px !important; font-size: 9px !important; }
 }
+
+/* PixAI Studio: compact responsive LoRA slots */
+.iig-pixai-lora-row{display:grid;grid-template-columns:75px minmax(0,1fr) 62px;gap:6px;align-items:center;margin:8px 0;padding:7px;border:1px solid rgba(160,130,220,.28);border-radius:10px}
+.iig-pixai-lora-row input[data-field="trigger"]{grid-column:2 / 4}
+.iig-pixai-lora-row .text_pole{min-width:0;width:100%;box-sizing:border-box}
+.iig-pixai-lora-row label{font-size:.86em}
+@media(max-width:450px){.iig-pixai-lora-row{grid-template-columns:66px minmax(0,1fr) 58px;gap:4px}}
