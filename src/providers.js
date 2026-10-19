@@ -2898,8 +2898,10 @@ class PixAiProvider extends Provider {
             if (!id) throw new Error('PixAI LoRA needs a numeric version ID or PixAI URL');
             const weight = Number(entry.weight);
             if (!Number.isFinite(weight) || weight < -2 || weight > 2) throw new Error('PixAI LoRA weight must be between -2 and 2');
-            if (parsedLoras.some(x => x.modelVersionId === id)) throw new Error('Duplicate PixAI LoRA version');
-            parsedLoras.push({ modelVersionId: id, weight });
+            if (parsedLoras.some(x => x.modelId === id)) throw new Error('Duplicate PixAI LoRA ID');
+            // PixAI /v2/image/create validates loras[].modelId (string), NOT modelVersionId.
+            // Keep the numeric ID as a string to avoid precision loss in JavaScript.
+            parsedLoras.push({ modelId: id, weight });
             const trigger = String(entry.trigger || '').trim().slice(0, 200);
             if (trigger) body.prompt += ', ' + trigger;
         }
@@ -2921,7 +2923,11 @@ class PixAiProvider extends Provider {
         }
         if (String(s.pixaiNegativePrompt || '').trim()) body.negativePrompt = String(s.pixaiNegativePrompt).trim();
         const post = await fetch('https://api.pixai.art/v2/image/create', { method: 'POST', headers, body: JSON.stringify(body), signal });
-        if (!post.ok) { const detail = (await post.text()).slice(0, 350); throw new Error(`PixAI create failed (HTTP ${post.status})${modelVersionId === '2024383379556065549' ? ' — Tsubaki.3 may not be enabled for this API key; try Tsubaki.2' : ''}: ${detail}`); }
+        if (!post.ok) {
+            // The server validation details identify invalid LoRA fields without logging credentials.
+            const detail = (await post.text()).slice(0, 2500);
+            throw new Error(`PixAI create failed (HTTP ${post.status})${modelVersionId === '2024383379556065549' ? ' — Tsubaki.3 may not be enabled for this API key; try Tsubaki.2' : ''}: ${detail}`);
+        }
         const created = await post.json();
         if (!created?.id) throw new Error('PixAI did not return a task ID');
         const deadline = Date.now() + 180000;
