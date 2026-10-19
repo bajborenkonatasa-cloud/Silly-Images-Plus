@@ -1565,6 +1565,11 @@ function bindApiSectionEvents(settings, updateVisibility) {
         // `settings.model` was shared by Gemini/xAI/OpenRouter/etc., so switching
         // providers could silently keep a text-only or foreign model selected.
         const previousApiType = settings.apiType;
+        // Capture the current field before provider switching, including on mobile.
+        const currentKeyField = document.getElementById('iig_api_key');
+        if (previousApiType && previousApiType !== 'novelai' && currentKeyField?.value?.trim()) {
+            settings.apiKey = currentKeyField.value;
+        }
         settings.modelsByApiType = settings.modelsByApiType || {};
         if (previousApiType && previousApiType !== 'naistera' && previousApiType !== 'novelai') {
             settings.modelsByApiType[previousApiType] = String(settings.model || '');

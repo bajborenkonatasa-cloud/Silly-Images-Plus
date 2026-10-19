@@ -575,6 +575,11 @@ export function saveCurrentIntoProfile(profileId = null, settings = getSettings(
 export function loadConnectionProfile(profileId, settings = getSettings()) {
     const profile = ensureConnectionProfiles(settings).find(p => p.id === profileId);
     if (!profile) return null;
+    // Preserve nonempty provider credentials before a profile snapshot replaces apiKey.
+    if (settings.apiType && settings.apiType !== NOVELAI_API_TYPE && String(settings.apiKey || '').trim()) {
+        settings.apiKeys ??= {};
+        settings.apiKeys[settings.apiType] = settings.apiKey;
+    }
     for (const key of CONNECTION_FIELDS) {
         settings[key] = profile[key];
     }
@@ -650,7 +655,8 @@ export function enforceKeyIsolation(s) {
 export function switchApiKeyForType(s, prevType, nextType) {
     if (!isPlainObject(s.apiKeys)) s.apiKeys = {};
     if (prevType && prevType !== NOVELAI_API_TYPE) {
-        s.apiKeys[prevType] = String(s.apiKey || '');
+        // A blank UI/profile snapshot must not erase a previously saved credential.
+        if (String(s.apiKey || '').trim()) s.apiKeys[prevType] = String(s.apiKey);
     }
     s.apiKey = nextType === NOVELAI_API_TYPE ? '' : String(s.apiKeys[nextType] || '');
     enforceKeyIsolation(s);
@@ -661,10 +667,13 @@ export function syncActiveKeyAfterProfileLoad(s) {
     if (!isPlainObject(s.apiKeys)) s.apiKeys = {};
     if (s.apiType === NOVELAI_API_TYPE) {
         s.apiKey = '';
-    } else if (s.apiKey) {
-        s.apiKeys[s.apiType] = String(s.apiKey);
     } else {
-        s.apiKey = String(s.apiKeys[s.apiType] || '');
+        // The provider vault is authoritative when returning to an existing provider.
+        // A newly selected profile may bring a key only if no saved key exists.
+        const saved = String(s.apiKeys[s.apiType] || '');
+        if (saved) s.apiKey = saved;
+        else if (String(s.apiKey || '').trim()) s.apiKeys[s.apiType] = String(s.apiKey);
+        else s.apiKey = '';
     }
     enforceKeyIsolation(s);
 }
