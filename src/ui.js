@@ -224,6 +224,7 @@ function buildApiSettingsSectionHtml(settings = getSettings()) {
                     <option value="naistera" ${settings.apiType === 'naistera' ? 'selected' : ''}>${t`Naistera (naistera.org)`}</option>
                     <option value="a1111" ${settings.apiType === 'a1111' ? 'selected' : ''}>${t`AUTOMATIC1111 / Forge (local)`}</option>
                     <option value="novelai" ${settings.apiType === 'novelai' ? 'selected' : ''}>${t`NovelAI (native)`}</option>
+                    <option value="pixai" ${settings.apiType === 'pixai' ? 'selected' : ''}>PixAI (official)</option>
                 </select>
                 <div></div>
             </div>
@@ -257,6 +258,15 @@ function buildApiSettingsSectionHtml(settings = getSettings()) {
 
             <p id="iig_naistera_hint" class="hint ${settings.apiType === 'naistera' ? '' : 'iig-hidden'}">${t`For Naistera: paste the token from the Telegram bot. Available models are loaded from the API.`}</p>
             <p id="iig_novelai_hint" class="hint ${settings.apiType === 'novelai' ? '' : 'iig-hidden'}">${t`Calls NovelAI's official image API directly from your browser using the API key above — separate from SillyTavern's own built-in NovelAI connection, and from any other provider's key on this page. Get your key on novelai.net → Settings → Account → Get Persistent API Token.`}</p>
+            <div id="iig_pixai_panel" class="iig-novelai-precise-panel ${settings.apiType === 'pixai' ? '' : 'iig-hidden'}">
+                <div class="iig-novelai-precise-title"><strong>🎨 PixAI · official API</strong><span>v2</span></div>
+                <p class="hint">Endpoint: https://api.pixai.art · Use your PixAI API key above. Models: Tsubaki.2 / Haruka v2 / Hoshino v2. Custom model version IDs can be entered in the model field using Raw endpoint mode, but leave endpoint as official PixAI.</p>
+                <div class="flex-row"><label>Aspect ratio</label><select id="iig_pixai_ratio" class="flex1">${['1:1','2:3','3:2','3:4','4:3','9:16','16:9'].map(x=>`<option value="${x}" ${settings.pixaiAspectRatio===x?'selected':''}>${x}</option>`).join('')}</select></div>
+                <div class="flex-row"><label>Size</label><select id="iig_pixai_size" class="flex1"><option value="1k" ${settings.pixaiSize!=='1.5k'?'selected':''}>1k</option><option value="1.5k" ${settings.pixaiSize==='1.5k'?'selected':''}>1.5k</option></select></div>
+                <div class="flex-row"><label>Tsubaki mode</label><select id="iig_pixai_mode" class="flex1">${['lite','standard','pro','ultra'].map(x=>`<option value="${x}" ${settings.pixaiMode===x?'selected':''}>${x}</option>`).join('')}</select></div>
+                <div class="flex-row"><label>Negative tags</label><textarea id="iig_pixai_negative" class="text_pole textarea_compact flex1" rows="2" placeholder="low quality, blurry, extra fingers">${sanitizeForHtml(settings.pixaiNegativePrompt||'')}</textarea></div>
+                <p class="hint">One image per request. Built-in prompt helper disabled to preserve your tags. Tsubaki mode applies only to Tsubaki models. PixAI does not receive avatar references in this version.</p>
+            </div>
             <div id="iig_novelai_precise_panel" class="iig-novelai-precise-panel ${settings.apiType === 'novelai' ? '' : 'iig-hidden'}">
                 <div class="iig-novelai-precise-title"><strong>🌙 Precise Reference</strong><span>V4.5 only</span></div>
                 <p class="hint">Additional References can each choose Character, Style, or Character + Style and their own Strength/Fidelity. Character/Persona library references use the defaults below.</p>
@@ -1532,6 +1542,7 @@ function bindApiSectionEvents(settings, updateVisibility) {
                 endpointInput.value = settings.endpoint;
             }
         }
+        if (nextApiType === 'pixai') settings.rawEndpoint = false;
         // Isolate both API keys and selected models per provider. Previously
         // `settings.model` was shared by Gemini/xAI/OpenRouter/etc., so switching
         // providers could silently keep a text-only or foreign model selected.
@@ -1553,11 +1564,14 @@ function bindApiSectionEvents(settings, updateVisibility) {
 
         // Load the selected provider's catalog. Naistera keeps its own picker,
         // while other providers use the shared model selector.
-        if (!settings.rawEndpoint || nextApiType === 'naistera') {
+        if (!settings.rawEndpoint || nextApiType === 'naistera' || nextApiType === 'pixai') {
             reloadModelList({ announce: false }).catch(() => { /* silent */ });
         }
     });
 
+    for (const [id, key] of [['iig_pixai_ratio','pixaiAspectRatio'],['iig_pixai_size','pixaiSize'],['iig_pixai_mode','pixaiMode'],['iig_pixai_negative','pixaiNegativePrompt']]) {
+        document.getElementById(id)?.addEventListener('change', (e) => { settings[key] = e.target.value; saveSettings(); });
+    }
     document.getElementById('iig_endpoint')?.addEventListener('input', (e) => {
         settings.endpoint = e.target.value;
         saveSettings();
@@ -3020,10 +3034,11 @@ function buildUpdateVisibility(settings) {
         // отдельном поле, общее поле ключа для него скрыто.
         document.getElementById('iig_api_key_row')?.classList.toggle('iig-hidden', isNovelAi);
         document.getElementById('iig_novelai_key_row')?.classList.toggle('iig-hidden', !isNovelAi);
-        document.getElementById('iig_endpoint_row')?.classList.toggle('iig-hidden', isNovelAi);
-        document.getElementById('iig_raw_endpoint_row')?.classList.toggle('iig-hidden', isNovelAi);
+        document.getElementById('iig_endpoint_row')?.classList.toggle('iig-hidden', isNovelAi || apiType === 'pixai');
+        document.getElementById('iig_raw_endpoint_row')?.classList.toggle('iig-hidden', isNovelAi || apiType === 'pixai');
         document.getElementById('iig_novelai_hint')?.classList.toggle('iig-hidden', !isNovelAi);
         document.getElementById('iig_novelai_precise_panel')?.classList.toggle('iig-hidden', !isNovelAi);
+        document.getElementById('iig_pixai_panel')?.classList.toggle('iig-hidden', apiType !== 'pixai');
         document.getElementById('iig_novelai_generation_panel')?.classList.toggle('iig-hidden', !isNovelAi);
         document.getElementById('iig_image_context_section')?.classList.toggle('iig-hidden', !refsSupported);
         document.getElementById('iig_image_context_count_row')?.classList.toggle('iig-hidden', !(refsSupported && settings.imageContextEnabled));

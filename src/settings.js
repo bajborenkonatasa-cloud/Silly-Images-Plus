@@ -303,6 +303,10 @@ export const defaultSettings = Object.freeze({
     // Остальные провайдеры хранят свои ключи в apiKeys[apiType]; активный
     // из них дублируется в apiKey (его и читают провайдеры).
     novelaiApiKey: '',
+    pixaiAspectRatio: '1:1',
+    pixaiSize: '1k',
+    pixaiMode: 'standard',
+    pixaiNegativePrompt: '',
     // NovelAI V4.5 Precise Reference defaults. Individual Additional References
     // may override these values in the reference editor.
     novelaiPreciseReferenceMode: 'character',

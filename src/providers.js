@@ -2828,6 +2828,73 @@ export class NovelAiProvider extends Provider {
     }
 }
 
+// ----- PixAI official v2 API (async task + polling) -----
+const PIXAI_MODELS = [
+    '1983308862240288769', // Tsubaki.2
+    '1861558740588989558', // Haruka v2
+    '1954632828118619567', // Hoshino v2
+];
+class PixAiProvider extends Provider {
+    get id() { return 'pixai'; }
+    get displayName() { return 'PixAI (official API)'; }
+    get capabilities() { return { endpointPlaceholder: 'https://api.pixai.art', requiresApiKey: true, referencesMaxCount: 0, referencesFormat: 'none' }; }
+    supportsReferences() { return false; }
+    supportsNegativePrompt() { return true; }
+    validate(s) {
+        const errors = [];
+        if (!String(s.apiKey || '').trim()) errors.push('PixAI API key is required');
+        if (!String(s.model || '').trim()) errors.push('PixAI model version ID is required');
+        return errors;
+    }
+    async fetchModels() { return PIXAI_MODELS; }
+    getModelLabel(id) { return ({ '1983308862240288769': 'Tsubaki.2', '1861558740588989558': 'Haruka v2', '1954632828118619567': 'Hoshino v2' })[id] || id; }
+    async generate({ prompt, style, options = {} }) {
+        const s = getSettings();
+        const key = String(s.apiKey || '').trim();
+        // Fixed official endpoint: never send PixAI credentials to a custom host.
+        const headers = { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' };
+        const signal = options.signal;
+        const modelVersionId = String(s.model || '').trim();
+        const tsubaki = modelVersionId === '1983308862240288769';
+        const ratio = String(s.pixaiAspectRatio || '1:1');
+        const body = {
+            modelVersionId,
+            prompt: [String(style || '').trim(), String(prompt || '').trim()].filter(Boolean).join(', '),
+            aspectRatio: ['1:1','2:3','3:2','3:4','4:3','3:5','5:3','9:16','16:9','1:3','3:1'].includes(ratio) ? ratio : '1:1',
+            size: s.pixaiSize === '1.5k' ? '1.5k' : '1k',
+            batchSize: 1,
+            promptHelper: 'disable', // preserve Visual DNA / user tags
+        };
+        if (tsubaki) body.mode = ['lite','standard','pro','ultra'].includes(s.pixaiMode) ? s.pixaiMode : 'standard';
+        if (String(s.pixaiNegativePrompt || '').trim()) body.negativePrompt = String(s.pixaiNegativePrompt).trim();
+        const post = await fetch('https://api.pixai.art/v2/image/create', { method: 'POST', headers, body: JSON.stringify(body), signal });
+        if (!post.ok) throw new Error(`PixAI create failed (HTTP ${post.status}): ${(await post.text()).slice(0, 250)}`);
+        const created = await post.json();
+        if (!created?.id) throw new Error('PixAI did not return a task ID');
+        const deadline = Date.now() + 180000;
+        let task = created;
+        while (Date.now() < deadline) {
+            if (signal?.aborted) throw new DOMException('PixAI request cancelled', 'AbortError');
+            if (task.status === 'completed') {
+                const imageUrl = task.outputs?.mediaUrls?.[0];
+                if (!imageUrl) throw new Error('PixAI completed without an image URL');
+                const data = await imageUrlToDataUrl(imageUrl);
+                if (!data) throw new Error('PixAI image could not be downloaded');
+                return data;
+            }
+            if (['failed','cancelled'].includes(task.status)) throw new Error(`PixAI task ${task.status}`);
+            await new Promise((resolve, reject) => {
+                const timer = setTimeout(resolve, 2000);
+                if (signal) signal.addEventListener('abort', () => { clearTimeout(timer); reject(new DOMException('PixAI request cancelled','AbortError')); }, { once: true });
+            });
+            const response = await fetch(`https://api.pixai.art/v1/task/${encodeURIComponent(created.id)}`, { headers: { Authorization: `Bearer ${key}` }, signal });
+            if (!response.ok) throw new Error(`PixAI task polling failed (HTTP ${response.status})`);
+            task = await response.json();
+        }
+        throw new Error('PixAI task timed out after 3 minutes');
+    }
+}
+
 // ----- Registry -----
 
 const providers = new Map();
@@ -2859,6 +2926,7 @@ registerProvider(new ElectronHubProvider());
 registerProvider(new NaisteraProvider());
 registerProvider(new A1111Provider());
 registerProvider(new NovelAiProvider());
+registerProvider(new PixAiProvider());
 
 // ----- Models fetcher (делегируется провайдеру) -----
 
