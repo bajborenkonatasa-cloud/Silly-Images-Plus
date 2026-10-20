@@ -323,6 +323,7 @@ export const defaultSettings = Object.freeze({
     novelaiWidth: 832,
     novelaiHeight: 1216,
     novelaiSteps: 23,
+    novelaiEffort: 'high', // High retains all existing settings; Medium is request-only.
     novelaiCfgScale: 5,
     novelaiCfgRescale: 0,
     novelaiSampler: 'k_euler_ancestral',

@@ -307,6 +307,11 @@ function buildApiSettingsSectionHtml(settings = getSettings()) {
             </div>
             <div id="iig_novelai_generation_panel" class="iig-novelai-precise-panel ${settings.apiType === 'novelai' ? '' : 'iig-hidden'}">
                 <div class="iig-novelai-precise-title"><strong>🎛️ NovelAI generation</strong><span>upstream controls</span></div>
+                <div class="flex-row"><label>V5 Effort</label><select id="iig_novelai_effort" class="flex1">
+                    <option value="high" ${(settings.novelaiEffort || 'high') === 'high' ? 'selected' : ''}>High · полный контроль</option>
+                    <option value="medium" ${settings.novelaiEffort === 'medium' ? 'selected' : ''}>Medium · экономия Anlas</option>
+                </select><div></div></div>
+                <p class="hint" id="iig_novelai_effort_hint">Medium доступен для V5 Full: 14 steps, Euler Ancestral, без пользовательского negative/rescale. High сохраняет все твои настройки.</p>
                 <div class="flex-row"><label>Resolution</label><select id="iig_novelai_resolution" class="flex1">
                     ${NOVELAI_RESOLUTION_PRESETS.map(p => `<option value="${p.width}x${p.height}" ${Number(settings.novelaiWidth)===p.width && Number(settings.novelaiHeight)===p.height ? 'selected' : ''}>${p.label}</option>`).join('')}
                     <option value="custom" ${NOVELAI_RESOLUTION_PRESETS.some(p => Number(settings.novelaiWidth)===p.width && Number(settings.novelaiHeight)===p.height) ? '' : 'selected'}>Custom</option>
@@ -1787,6 +1792,10 @@ function bindApiSectionEvents(settings, updateVisibility) {
     });
     saveNovelAiNumber('iig_novelai_width', 'novelaiWidth', 64, 2048);
     saveNovelAiNumber('iig_novelai_height', 'novelaiHeight', 64, 2048);
+    document.getElementById('iig_novelai_effort')?.addEventListener('change', (e) => {
+        settings.novelaiEffort = e.target.value === 'medium' ? 'medium' : 'high';
+        saveSettings();
+    });
     saveNovelAiNumber('iig_novelai_steps', 'novelaiSteps', 1, 50);
     saveNovelAiNumber('iig_novelai_cfg', 'novelaiCfgScale', 0, 10);
     saveNovelAiNumber('iig_novelai_cfg_rescale', 'novelaiCfgRescale', 0, 1);

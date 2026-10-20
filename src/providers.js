@@ -2622,20 +2622,18 @@ export class NovelAiProvider extends Provider {
             },
         );
         iigLog('INFO', `NovelAI full prompt (${fullPrompt.length} chars): ${fullPrompt}`);
-        const model = String(options?.modelOverride || settings.model || NOVELAI_MODELS[0].id);
+        const selectedModel = String(options?.modelOverride || settings.model || NOVELAI_MODELS[0].id);
+        const useMedium = selectedModel === 'nai-diffusion-5-full' && settings.novelaiEffort === 'medium';
+        const model = useMedium ? 'nai-diffusion-5-full-medium' : selectedModel;
         // V4/V4.5/V5 ждут структурированный v4_prompt/v4_negative_prompt в
         // дополнение к обычным полям — без него игнорируют часть промпта.
         const isV4Family = model.startsWith('nai-diffusion-4') || model.startsWith('nai-diffusion-5');
 
-        // Honor a strict 9:16 request from <naicom>. The old code ignored
-        // options.aspectRatio for Native NovelAI and always used the saved preset.
-        const requestedAspectRatio = String(options?.aspectRatio || '').trim();
-        const nativeWidth = requestedAspectRatio === '9:16'
-            ? 1024
-            : (Number(settings.novelaiWidth) || 832);
-        const nativeHeight = requestedAspectRatio === '9:16'
-            ? 1792
-            : (Number(settings.novelaiHeight) || 1216);
+        // Respect the actual user-selected resolution. Previously every 9:16
+        // scene silently forced 1024x1792, overriding 832x1216 and increasing
+        // billable pixels by ~82%. A ratio is not a resolution override.
+        const nativeWidth = Number(settings.novelaiWidth) || 832;
+        const nativeHeight = Number(settings.novelaiHeight) || 1216;
 
         const parameters = {
             params_version: 4,
@@ -2657,6 +2655,14 @@ export class NovelAiProvider extends Provider {
             legacy_v3_extend: false,
             add_original_image: false,
         };
+
+        // Medium settings are request-only: never overwrite High presets.
+        if (useMedium) {
+            parameters.steps = 14;
+            parameters.sampler = 'k_euler_ancestral';
+            parameters.scale = 0.7;
+            delete parameters.cfg_rescale;
+        }
 
         // NovelAI V4.5 Precise Reference (Director Reference).
         // Phase 1 deliberately uses Character mode with conservative defaults.
@@ -2734,7 +2740,11 @@ export class NovelAiProvider extends Provider {
         const countGuard = buildNovelAiCountGuard(structuredBase);
         const configuredNegative = String(options.negativePrompt ?? getEffectiveNegativePrompt(settings.novelaiNegativePrompt, settings)).trim();
         const nativeNegative = [configuredNegative || NOVELAI_DEFAULT_NEGATIVE_PROMPT, countGuard].filter(Boolean).join(', ');
-        parameters.negative_prompt = nativeNegative;
+        // Medium has no user-defined negative prompt. Keep the fixed default
+        // from the upstream implementation and preserve structured captions.
+        const mediumNegative = 'lowres, artistic error, film grain, scan artifacts, worst quality, bad quality, jpeg artifacts, very displeasing, chromatic aberration, dithering, halftone, screentone, multiple views, logo, too many watermarks, negative space, blank page';
+        const sentNegative = useMedium ? mediumNegative : nativeNegative;
+        parameters.negative_prompt = sentNegative;
         if (model.startsWith('nai-diffusion-5-')) {
             delete parameters.noise_schedule;
         } else if (Number(settings.novelaiSkipCfgAboveSigma) > 0) {
@@ -2749,7 +2759,7 @@ export class NovelAiProvider extends Provider {
                 legacy_uc: false,
             };
             parameters.v4_negative_prompt = {
-                caption: { base_caption: nativeNegative, char_captions: novelAiCharacterCaptions.map(() => ({ char_caption: '', centers: [{ x: 0.5, y: 0.5 }] })) },
+                caption: { base_caption: sentNegative, char_captions: novelAiCharacterCaptions.map(() => ({ char_caption: '', centers: [{ x: 0.5, y: 0.5 }] })) },
                 use_coords: false,
                 use_order: false,
                 legacy_uc: false,
@@ -2763,7 +2773,7 @@ export class NovelAiProvider extends Provider {
             parameters,
         };
 
-        iigLog('INFO', `NovelAI direct request: model=${model} ${parameters.width}x${parameters.height} steps=${parameters.steps}`);
+        iigLog('INFO', `NovelAI direct request: model=${model} ${parameters.width}x${parameters.height} steps=${parameters.steps} effort=${useMedium ? 'medium' : 'high'}`);
 
         const signal = options.signal || null;
         // Предохранитель: NovelAI-ключ уходит только на официальный хост.
