@@ -2829,12 +2829,20 @@ export class NovelAiProvider extends Provider {
 }
 
 // ----- PixAI official v2 API (async task + polling) -----
+const PIXAI_TSUBAKI_2 = '1983308862240288769';
+const PIXAI_TSUBAKI_3 = '2024383379556065549';
+const PIXAI_TSUBAKI_3_FLASH = '2050048243034896798';
 const PIXAI_MODELS = [
-    '2024383379556065549', // Tsubaki.3 (experimental API access; verify with live key)
-    '1983308862240288769', // Tsubaki.2
+    PIXAI_TSUBAKI_2,       // Proven working with PixAI official API
+    PIXAI_TSUBAKI_3_FLASH, // Official PixAI DiT.3 Flash model version; API access unverified
+    PIXAI_TSUBAKI_3,       // Official PixAI DiT.3 model version; API access unverified
     '1861558740588989558', // Haruka v2
     '1954632828118619567', // Hoshino v2
 ];
+// Existing user's verified DiT.2 LoRA versions. Never send them with DiT.3.
+const PIXAI_KNOWN_DIT2_LORAS = new Set([
+    '1991656819062231117', '1992029077311361140', '1995160950915289233',
+]);
 class PixAiProvider extends Provider {
     get id() { return 'pixai'; }
     get displayName() { return 'PixAI (official API)'; }
@@ -2848,7 +2856,7 @@ class PixAiProvider extends Provider {
         return errors;
     }
     async fetchModels() { return PIXAI_MODELS; }
-    getModelLabel(id) { return ({ '2024383379556065549': 'Tsubaki.3 (API experimental)', '1983308862240288769': 'Tsubaki.2', '1861558740588989558': 'Haruka v2', '1954632828118619567': 'Hoshino v2' })[id] || id; }
+    getModelLabel(id) { return ({ [PIXAI_TSUBAKI_3_FLASH]: 'Tsubaki.3 Flash (API test)', [PIXAI_TSUBAKI_3]: 'Tsubaki.3 (API test)', [PIXAI_TSUBAKI_2]: 'Tsubaki.2 (working)', '1861558740588989558': 'Haruka v2', '1954632828118619567': 'Hoshino v2' })[id] || id; }
     async generate({ prompt, style, options = {} }) {
         const s = getSettings();
         const key = String(s.apiKey || '').trim();
@@ -2856,7 +2864,9 @@ class PixAiProvider extends Provider {
         const headers = { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' };
         const signal = options.signal;
         const modelVersionId = String(s.model || '').trim();
-        const tsubaki = ['1983308862240288769', '2024383379556065549'].includes(modelVersionId);
+        const isTsubaki2 = modelVersionId === PIXAI_TSUBAKI_2;
+        const isTsubaki3 = modelVersionId === PIXAI_TSUBAKI_3 || modelVersionId === PIXAI_TSUBAKI_3_FLASH;
+        const tsubaki = isTsubaki2 || isTsubaki3;
         const ratio = String(s.pixaiAspectRatio || '1:1');
         const body = {
             modelVersionId,
@@ -2866,7 +2876,11 @@ class PixAiProvider extends Provider {
             batchSize: 1,
             promptHelper: 'disable', // preserve Visual DNA / user tags
         };
-        if (tsubaki) body.mode = ['lite','standard','pro','ultra'].includes(s.pixaiMode) ? s.pixaiMode : 'standard';
+        // The public v2 API documents `mode` as optional. The DiT.3 backend rejected
+        // `lite` with HTTP 422 (unknown inferenceProfile). On DiT.3, leave mode
+        // UNSPECIFIED so the server chooses its own default. Do not guess "flash"
+        // or silently retry: retries can unexpectedly spend credits.
+        if (isTsubaki2) body.mode = ['lite','standard','pro','ultra'].includes(s.pixaiMode) ? s.pixaiMode : 'standard';
         // PixAI v2: DiT Tsubaki uses mode; SDXL models optionally accept sampling.
         // Styles are kept separate from scene identity; the built-in curated styles
         // are textual prefixes for maximum compatibility with the documented API.
@@ -2898,6 +2912,9 @@ class PixAiProvider extends Provider {
             if (!id) throw new Error('PixAI LoRA needs a numeric version ID or PixAI URL');
             const weight = Number(entry.weight);
             if (!Number.isFinite(weight) || weight < -2 || weight > 2) throw new Error('PixAI LoRA weight must be between -2 and 2');
+            if (isTsubaki3 && PIXAI_KNOWN_DIT2_LORAS.has(id)) {
+                throw new Error('PixAI: a DiT.2 LoRA is enabled while Tsubaki.3 / Flash (DiT.3) is selected. Disable the old LoRA slots or load a DiT.3 preset BEFORE sending a paid request. No PixAI request was sent.');
+            }
             if (parsedLoras.some(x => x.modelId === id)) throw new Error('Duplicate PixAI LoRA ID');
             // PixAI /v2/image/create validates loras[].modelId (string), NOT modelVersionId.
             // Keep the numeric ID as a string to avoid precision loss in JavaScript.
@@ -2926,7 +2943,10 @@ class PixAiProvider extends Provider {
         if (!post.ok) {
             // The server validation details identify invalid LoRA fields without logging credentials.
             const detail = (await post.text()).slice(0, 2500);
-            throw new Error(`PixAI create failed (HTTP ${post.status})${modelVersionId === '2024383379556065549' ? ' — Tsubaki.3 may not be enabled for this API key; try Tsubaki.2' : ''}: ${detail}`);
+            // Surface the actual PixAI response. A 422 invalid inferenceProfile is
+            // not proof that the user's API subscription lacks model access.
+            const hint = isTsubaki3 ? ' — DiT.3 API access / compatible settings are not confirmed. The website working does not guarantee API support.' : '';
+            throw new Error(`PixAI create failed (HTTP ${post.status})${hint}: ${detail}`);
         }
         const created = await post.json();
         if (!created?.id) throw new Error('PixAI did not return a task ID');
