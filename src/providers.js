@@ -2740,7 +2740,9 @@ export class NovelAiProvider extends Provider {
         if (isMedium) {
             parameters.steps = 14;
             parameters.sampler = 'k_euler_ancestral';
-            parameters.scale = 0.7;
+            // Medium uses the same user-selected CFG guidance as Full.
+            // Only steps, sampler and unsupported rescale are constrained.
+            // Do not force CFG to 0.7: it can severely degrade composition.
             parameters.ucPreset = 0;
             delete parameters.cfg_rescale;
         }
