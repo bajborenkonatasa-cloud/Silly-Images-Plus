@@ -2280,6 +2280,7 @@ export class A1111Provider extends Provider {
 // Публичного /v1/models у NovelAI нет — список моделей статичный.
 const NOVELAI_MODELS = [
     { id: 'nai-diffusion-5-full', label: 'NAI Diffusion V5 (Full)' },
+    { id: 'nai-diffusion-5-full-medium', label: 'NAI Diffusion V5 (Medium · экономия Anlas)' },
     { id: 'nai-diffusion-5-curated', label: 'NAI Diffusion V5 (Curated)' },
     { id: 'nai-diffusion-4-5-full', label: 'NAI Diffusion Anime V4.5 (Full)' },
     { id: 'nai-diffusion-4-5-curated', label: 'NAI Diffusion Anime V4.5 (Curated)' },
@@ -2623,8 +2624,8 @@ export class NovelAiProvider extends Provider {
         );
         iigLog('INFO', `NovelAI full prompt (${fullPrompt.length} chars): ${fullPrompt}`);
         const selectedModel = String(options?.modelOverride || settings.model || NOVELAI_MODELS[0].id);
-        const useMedium = selectedModel === 'nai-diffusion-5-full' && settings.novelaiEffort === 'medium';
-        const model = useMedium ? 'nai-diffusion-5-full-medium' : selectedModel;
+        const useMedium = selectedModel === 'nai-diffusion-5-full-medium';
+        const model = selectedModel;
         // V4/V4.5/V5 ждут структурированный v4_prompt/v4_negative_prompt в
         // дополнение к обычным полям — без него игнорируют часть промпта.
         const isV4Family = model.startsWith('nai-diffusion-4') || model.startsWith('nai-diffusion-5');
@@ -2647,7 +2648,9 @@ export class NovelAiProvider extends Provider {
             noise_schedule: NOVELAI_NOISE_SCHEDULES.includes(settings.novelaiNoiseSchedule) ? settings.novelaiNoiseSchedule : 'karras',
             negative_prompt: NOVELAI_DEFAULT_NEGATIVE_PROMPT,
             qualityToggle: false,
-            ucPreset: 0,
+            ucPreset: useMedium ? 0 : 3,
+            deliberate_euler_ancestral_bug: false,
+            prefer_brownian: true,
             dynamic_thresholding: false,
             cfg_rescale: Number.isFinite(Number(settings.novelaiCfgRescale)) ? Math.max(0, Math.min(1, Number(settings.novelaiCfgRescale))) : 0,
             sm: false,
