@@ -311,9 +311,7 @@ function buildRequestSnapshot({ prompt, style, references, matchedAdditionalRefs
                 ? (options?.imageSize || settings.xaiResolution || '')
                 : (options?.imageSize || settings.imageSize || ''),
             size: settings.apiType === 'novelai'
-                ? ((String(aspectRatio || '') === '9:16')
-                    ? '1024x1792'
-                    : `${Number(settings.novelaiWidth) || 832}x${Number(settings.novelaiHeight) || 1216}`)
+                ? `${Number(settings.novelaiWidth) || 832}x${Number(settings.novelaiHeight) || 1216}`
                 : settings.apiType === 'naistera'
                     ? (String(aspectRatio || '') === '9:16' ? '9:16 (provider-controlled)' : String(aspectRatio || ''))
                     : (settings.size || ''),

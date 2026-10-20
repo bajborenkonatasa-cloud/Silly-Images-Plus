@@ -2629,15 +2629,11 @@ export class NovelAiProvider extends Provider {
         const isV4Family = model.startsWith('nai-diffusion-4') || model.startsWith('nai-diffusion-5');
         const isMedium = model === 'nai-diffusion-5-full-medium';
 
-        // Honor a strict 9:16 request from <naicom>. The old code ignored
-        // options.aspectRatio for Native NovelAI and always used the saved preset.
-        const requestedAspectRatio = String(options?.aspectRatio || '').trim();
-        const nativeWidth = requestedAspectRatio === '9:16'
-            ? 1024
-            : (Number(settings.novelaiWidth) || 832);
-        const nativeHeight = requestedAspectRatio === '9:16'
-            ? 1792
-            : (Number(settings.novelaiHeight) || 1216);
+        // Native NovelAI resolution is user-controlled. A Scene Blocks / <naicom>
+        // aspectRatio is a layout hint, NOT permission to replace saved dimensions.
+        // The previous 9:16 override silently increased 832x1216 to 1024x1792.
+        const nativeWidth = Number(settings.novelaiWidth) || 832;
+        const nativeHeight = Number(settings.novelaiHeight) || 1216;
 
         const parameters = {
             params_version: 4,
