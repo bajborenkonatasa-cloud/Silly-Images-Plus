@@ -2280,6 +2280,7 @@ export class A1111Provider extends Provider {
 // Публичного /v1/models у NovelAI нет — список моделей статичный.
 const NOVELAI_MODELS = [
     { id: 'nai-diffusion-5-full', label: 'NAI Diffusion V5 (Full)' },
+    { id: 'nai-diffusion-5-full-medium', label: 'NAI Diffusion V5 (Medium)' },
     { id: 'nai-diffusion-5-curated', label: 'NAI Diffusion V5 (Curated)' },
     { id: 'nai-diffusion-4-5-full', label: 'NAI Diffusion Anime V4.5 (Full)' },
     { id: 'nai-diffusion-4-5-curated', label: 'NAI Diffusion Anime V4.5 (Curated)' },
@@ -2626,6 +2627,7 @@ export class NovelAiProvider extends Provider {
         // V4/V4.5/V5 ждут структурированный v4_prompt/v4_negative_prompt в
         // дополнение к обычным полям — без него игнорируют часть промпта.
         const isV4Family = model.startsWith('nai-diffusion-4') || model.startsWith('nai-diffusion-5');
+        const isMedium = model === 'nai-diffusion-5-full-medium';
 
         // Honor a strict 9:16 request from <naicom>. The old code ignored
         // options.aspectRatio for Native NovelAI and always used the saved preset.
@@ -2734,7 +2736,19 @@ export class NovelAiProvider extends Provider {
         const countGuard = buildNovelAiCountGuard(structuredBase);
         const configuredNegative = String(options.negativePrompt ?? getEffectiveNegativePrompt(settings.novelaiNegativePrompt, settings)).trim();
         const nativeNegative = [configuredNegative || NOVELAI_DEFAULT_NEGATIVE_PROMPT, countGuard].filter(Boolean).join(', ');
-        parameters.negative_prompt = nativeNegative;
+        // Medium is an independent NovelAI model. Never modify the original Full path.
+        // Match the upstream implementation's fixed Medium constraints.
+        const effectiveNegative = isMedium
+            ? 'lowres, artistic error, film grain, scan artifacts, worst quality, bad quality, jpeg artifacts, very displeasing, chromatic aberration, dithering, halftone, screentone, multiple views, logo, too many watermarks, negative space, blank page'
+            : nativeNegative;
+        if (isMedium) {
+            parameters.steps = 14;
+            parameters.sampler = 'k_euler_ancestral';
+            parameters.scale = 0.7;
+            parameters.ucPreset = 0;
+            delete parameters.cfg_rescale;
+        }
+        parameters.negative_prompt = effectiveNegative;
         if (model.startsWith('nai-diffusion-5-')) {
             delete parameters.noise_schedule;
         } else if (Number(settings.novelaiSkipCfgAboveSigma) > 0) {
@@ -2749,7 +2763,7 @@ export class NovelAiProvider extends Provider {
                 legacy_uc: false,
             };
             parameters.v4_negative_prompt = {
-                caption: { base_caption: nativeNegative, char_captions: novelAiCharacterCaptions.map(() => ({ char_caption: '', centers: [{ x: 0.5, y: 0.5 }] })) },
+                caption: { base_caption: effectiveNegative, char_captions: novelAiCharacterCaptions.map(() => ({ char_caption: '', centers: [{ x: 0.5, y: 0.5 }] })) },
                 use_coords: false,
                 use_order: false,
                 legacy_uc: false,
