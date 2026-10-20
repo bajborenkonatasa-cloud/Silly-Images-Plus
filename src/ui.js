@@ -307,7 +307,6 @@ function buildApiSettingsSectionHtml(settings = getSettings()) {
             </div>
             <div id="iig_novelai_generation_panel" class="iig-novelai-precise-panel ${settings.apiType === 'novelai' ? '' : 'iig-hidden'}">
                 <div class="iig-novelai-precise-title"><strong>🎛️ NovelAI generation</strong><span>upstream controls</span></div>
-                <p class="hint">V5 Full Medium выбирается в общем списке моделей. В Medium параметры 14 steps / Euler Ancestral / fixed negative применяются только к запросу. Обычный V5 Full сохраняет ручные настройки.</p>
                 <div class="flex-row"><label>Resolution</label><select id="iig_novelai_resolution" class="flex1">
                     ${NOVELAI_RESOLUTION_PRESETS.map(p => `<option value="${p.width}x${p.height}" ${Number(settings.novelaiWidth)===p.width && Number(settings.novelaiHeight)===p.height ? 'selected' : ''}>${p.label}</option>`).join('')}
                     <option value="custom" ${NOVELAI_RESOLUTION_PRESETS.some(p => Number(settings.novelaiWidth)===p.width && Number(settings.novelaiHeight)===p.height) ? '' : 'selected'}>Custom</option>

@@ -3,7 +3,6 @@ import { t } from './i18n.js';
 // Image model IDs from NovelAI's image client; /oa/v1/models lists text models.
 export const NOVELAI_MODELS = Object.freeze({
     'nai-diffusion-5-full': 'NovelAI V5 Full',
-    'nai-diffusion-5-full-medium': 'NovelAI V5 Full Medium',
     'nai-diffusion-5-curated': 'NovelAI V5 Curated',
     'nai-diffusion-4-5-full': 'NovelAI V4.5 Full',
     'nai-diffusion-4-5-curated': 'NovelAI V4.5 Curated',
