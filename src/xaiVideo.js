@@ -248,19 +248,21 @@ async function generateOmniVideoFromImage(imageSrc, options, onStatus = () => {}
   return { url, requestId, model: 'gemini-omni-1.1-flash', provider: 'omni', transientUrl: true };
 }
 
-// Director assistant: reads only the current SillyTavern chat in memory; no extra API calls.
-function getDirectorScene(turnCount = 2) {
+// Local, zero-cost director: never sends chat data until the user confirms generation.
+function getDirectorScene(turnCount = 2, castNames = []) {
   const context = globalThis.SillyTavern?.getContext?.();
   const chat = context?.chat;
-  if (!Array.isArray(chat) || !chat.length) throw new Error('Не удалось прочитать сообщения текущего чата SillyTavern.');
-  const selected = chat.filter(m => !m.is_system && !m.is_group && typeof m.mes === 'string' && m.mes.trim()).slice(-turnCount);
-  if (!selected.length) throw new Error('В текущем чате нет подходящих сообщений.');
-  const text = selected.map(m => {
-    const role = m.is_user ? 'USER' : 'CHARACTER';
-    const name = String(m.name || (m.is_user ? 'User' : 'Character')).slice(0, 70);
-    return `${role} (${name}): ${m.mes.replace(/<[^>]*>/g, ' ').slice(0, 2200)}`;
-  }).join('\n\n');
-  return `Create a coherent cinematic scene based on the following roleplay excerpt. Use the provided image as the visual starting point and preserve the characters' faces, outfits and setting. Animate only the most important actions that can fit into 8 seconds. If the excerpt contains dialogue, use at most one short spoken line, verbatim and in its original language; do not invent additional dialogue. Keep natural timing, subtle facial acting, realistic ambient sound and a gentle camera push-in. Do not render subtitles or on-screen text.\n\nROLEPLAY EXCERPT:\n${text}`;
+  if (!Array.isArray(chat) || !chat.length) throw new Error('Не удалось прочитать текущий чат SillyTavern.');
+  const selected = chat.filter(m => !m.is_system && typeof m.mes === 'string' && m.mes.trim()).slice(-turnCount);
+  if (!selected.length) throw new Error('В чате нет подходящих сообщений.');
+  const names = castNames.map(n => String(n || '').trim()).filter(Boolean).slice(0,4);
+  const cast = names.length ? `CAST (up to four distinct people; do not merge faces or swap identities):\n${names.map((n,i)=>`${i+1}. ${n}`).join('\n')}\n\n` : '';
+  const excerpt = selected.map(m => {
+    const speaker = String(m.name || (m.is_user ? context?.name1 || 'User' : context?.name2 || 'Character')).slice(0,70);
+    const cleaned = m.mes.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi,' ').replace(/<[^>]*>/g,' ').replace(/\s+/g,' ').trim().slice(0,1600);
+    return `${speaker}: ${cleaned}`;
+  }).join('\n');
+  return `DIRECTOR BRIEF — 8-second cinematic video.\n${cast}Use the attached scene image for framing, environment, wardrobe and visual identity. Preserve each visible person's face and hairstyle. The named cast may include the user, main character and NPCs; never assume only two characters. Do not add extra people. Keep motion subtle and physically plausible. Extract the most important visible actions from the excerpt. For speech, choose at most one brief verbatim line in its original language, attributed to its correct speaker; do not invent dialogue or translate names. Natural timing, room ambience, gentle camera movement. No subtitles or text overlays.\n\nROLEPLAY EXCERPT:\n${excerpt}`;
 }
 
 function ensureDialogStyle() {
@@ -286,7 +288,8 @@ export function askXaiVideoOptions(initialPrompt = '') {
       <label>Видеодвижок<select class="iig-xv-provider"><option value="grok">xAI · Grok Imagine Video</option><option value="veo">Google · Veo 3.1 (устаревшая Preview)</option><option value="omni">Google · Gemini Omni 1.1 Flash</option></select></label>
       <section class="iig-xv-director"><strong>🎬 ИИ-режиссёр · сценарий из ролевой</strong><small>Берёт последние сообщения только из открытого чата. Покажет сценарий для проверки; ничего не отправляет в Google до нажатия «Создать видео».</small><label>Контекст<select class="iig-xv-turns"><option value="2">Последние 2 сообщения</option><option value="4">Последние 4 сообщения</option><option value="6">Последние 6 сообщений</option></select></label><button type="button" class="iig-xv-from-chat">Взять сцену из ролевой</button><button type="button" class="iig-xv-restore">Вернуть описание картинки</button></section>
       <label class="iig-xv-prompt-wrap"><span class="iig-xv-prompt-title">✍️ Что должно произойти и что должно быть слышно</span><span class="iig-xv-prompt-help">Движение персонажей, камера, атмосфера, реплики и звуки — всё можно написать здесь.</span><textarea class="iig-xv-prompt" placeholder="Например: девушка медленно поднимает взгляд, волосы движутся от ветра, камера плавно приближается. Слышно тихий дождь…"></textarea></label>
-      <label class="iig-xv-references" style="display:none">Дополнительные референсы Бо / Ханаби (до 4 файлов JPEG/PNG/WebP)<input class="iig-xv-reference-files" type="file" accept="image/jpeg,image/png,image/webp" multiple><small>Исходная картинка уже считается первым референсом. Дополнительные файлы используются только для Gemini Omni.</small></label>
+      <section class="iig-xv-director iig-xv-cast"><strong>👥 Персонажи и NPC · до 4 человек</strong><small>Укажи имена в порядке появления на референсах. Можно оставить пустые поля. Референсы выбираются ниже для Gemini Omni.</small><div class="iig-xv-grid"><label>Персонаж 1<input class="iig-xv-cast-name" placeholder="Например, Ханаби"></label><label>Персонаж 2<input class="iig-xv-cast-name" placeholder="Например, Бо"></label><label>NPC 3<input class="iig-xv-cast-name" placeholder="Имя NPC"></label><label>NPC 4<input class="iig-xv-cast-name" placeholder="Имя NPC"></label></div></section>
+      <label class="iig-xv-references" style="display:none">Портреты персонажей / NPC (до 4 файлов JPEG/PNG/WebP)<input class="iig-xv-reference-files" type="file" accept="image/jpeg,image/png,image/webp" multiple><small>Исходная сцена передаётся отдельно. Портреты добавляй в том же порядке, что и имена ниже. Модель не гарантирует точное совпадение лиц.</small></label>
       <div class="iig-xv-grid">
         <label>Модель<select class="iig-xv-model"></select></label>
         <label>Длительность<select class="iig-xv-duration"></select></label>
@@ -301,9 +304,12 @@ export function askXaiVideoOptions(initialPrompt = '') {
     const q = sel => wrap.querySelector(sel);
     const provider=q('.iig-xv-provider'), promptBox=q('.iig-xv-prompt'), model=q('.iig-xv-model'), duration=q('.iig-xv-duration'), resolution=q('.iig-xv-resolution'), audio=q('.iig-xv-audio-input'), cost=q('.iig-xv-cost'), refFiles=q('.iig-xv-reference-files'), refLabel=q('.iig-xv-references');
     let remembered={}; try { remembered=JSON.parse(localStorage.getItem('iig_video_options')||'{}'); } catch {}
+    const savedCast = (()=>{try{return JSON.parse(localStorage.getItem('iig_video_cast')||'[]')}catch{return []}})();
+    const castInputs=[...wrap.querySelectorAll('.iig-xv-cast-name')]; castInputs.forEach((el,i)=>el.value=String(savedCast[i]||''));
+    const getCast=()=>castInputs.map(el=>el.value.trim());
     const originalPrompt = String(initialPrompt || localStorage.getItem('iig_video_prompt') || '');
     promptBox.value = originalPrompt;
-    q('.iig-xv-from-chat').onclick = () => { try { promptBox.value = getDirectorScene(Number(q('.iig-xv-turns').value)); q('.iig-xv-status').textContent = 'Сценарий подготовлен. Проверь реплики и действия перед платной генерацией.'; } catch (e) { q('.iig-xv-status').textContent = e.message; } };
+    q('.iig-xv-from-chat').onclick = () => { try { promptBox.value = getDirectorScene(Number(q('.iig-xv-turns').value),getCast()); q('.iig-xv-status').textContent = 'Сценарий подготовлен. Проверь реплики и действия перед платной генерацией.'; } catch (e) { q('.iig-xv-status').textContent = e.message; } };
     q('.iig-xv-restore').onclick = () => { promptBox.value = originalPrompt; q('.iig-xv-status').textContent = 'Описание картинки восстановлено.'; };
     if (['veo', 'grok', 'omni'].includes(remembered.provider)) provider.value=remembered.provider;
     const fill=(el, items, selected)=>{ el.innerHTML=items.map(([v,l])=>`<option value="${v}">${l}</option>`).join(''); if([...el.options].some(o=>o.value===String(selected))) el.value=String(selected); };
@@ -311,14 +317,14 @@ export function askXaiVideoOptions(initialPrompt = '') {
       if(provider.value==='omni'){
         fill(model,[['gemini-omni-1.1-flash','Gemini Omni 1.1 Flash']],'gemini-omni-1.1-flash');
         fill(duration,[[8,'8 секунд'],[0,'Автоматически · 3–10 сек'],[5,'5 секунд'],[10,'10 секунд']],remembered.provider==='omni'?remembered.duration:8);
-        fill(resolution,[['360p','360p'],['720p','720p · HD'],['1080p','1080p · Full HD'],['4k','4K']],remembered.provider==='omni'?remembered.resolution:'720p');
+        fill(resolution,[['360p','360p'],['720p','720p · HD'],['1080p','1080p · Full HD'],['4k','4K']],remembered.provider==='omni'?remembered.resolution:'360p');
         audio.checked=true; audio.disabled=true;
         refLabel.style.display='grid';
       } else if(provider.value==='veo'){
         refLabel.style.display='none';
         fill(model,Object.entries(VEO_MODELS).map(([v,x])=>[v,x.label]), remembered.provider==='veo'?remembered.model:'veo-3.1-lite-generate-preview');
         fill(duration,[[4,'4 сек'],[6,'6 сек'],[8,'8 сек']],remembered.provider==='veo'?remembered.duration:8);
-        fill(resolution,[['720p','720p · экономно'],['1080p','1080p · 8 сек'],['4k','4K · 8 сек']],remembered.provider==='veo'?remembered.resolution:'720p');
+        fill(resolution,[['720p','720p · экономно'],['1080p','1080p · 8 сек'],['4k','4K · 8 сек']],remembered.provider==='veo'?remembered.resolution:'360p');
         audio.checked=true; audio.disabled=true; audio.closest('label').title='Veo 3.1 генерирует аудио вместе с видео';
       } else {
         refLabel.style.display='none';
@@ -356,11 +362,15 @@ export function askXaiVideoOptions(initialPrompt = '') {
       if (files.some(f => !['image/jpeg','image/png','image/webp'].includes(f.type) || f.size > 12 * 1024 * 1024)) {
         q('.iig-xv-status').textContent='Референсы: JPEG/PNG/WebP, каждый до 12 МБ.'; return;
       }
+      const castNames=getCast();
+      if(files.length && castNames.filter(Boolean).length && files.length!==castNames.filter(Boolean).length){q('.iig-xv-status').textContent='Число портретов должно совпадать с числом заполненных имён. Для сцены без портретов оставь загрузку пустой.';return;}
       const referenceImages = await Promise.all(files.map(f => new Promise((resolve,reject)=>{
         const reader=new FileReader(); reader.onload=()=>resolve(reader.result); reader.onerror=reject; reader.readAsDataURL(f);
       })));
-      const value={provider:provider.value,prompt:promptBox.value.trim(),model:model.value,duration:Number(duration.value),resolution:resolution.value,generateAudio:audio.checked,aspectRatio:'9:16',referenceImages};
-      localStorage.setItem('iig_video_prompt',value.prompt); localStorage.setItem('iig_video_options',JSON.stringify({...value, referenceImages: []})); finish(value);
+      const identityGuide=castNames.filter(Boolean).map((n,i)=>`Reference portrait ${i+1} depicts ${n}. Preserve this person’s identity and do not mix them with other cast members.`).join('\n');
+      const finalPrompt=promptBox.value.trim() + (provider.value==='omni' && files.length && identityGuide ? '\n\nCHARACTER REFERENCE MAP:\n'+identityGuide : '');
+      const value={provider:provider.value,prompt:finalPrompt,model:model.value,duration:Number(duration.value),resolution:resolution.value,generateAudio:audio.checked,aspectRatio:'9:16',referenceImages};
+      localStorage.setItem('iig_video_cast',JSON.stringify(castNames)); localStorage.setItem('iig_video_prompt',promptBox.value.trim()); localStorage.setItem('iig_video_options',JSON.stringify({...value, prompt:'', referenceImages: []})); finish(value);
     };
   });
 }
