@@ -12,6 +12,7 @@ import { t } from './i18n.js';
 import { iigLog, getSettings } from './settings.js';
 import { regenerateSingleTag } from './pipeline.js';
 import { animateImageInteractive } from './xaiVideo.js';
+import { encodeLocalMediaPath } from './utils.js';
 
 const IMG_SELECTOR = 'img[data-iig-instruction]';
 
@@ -87,6 +88,7 @@ function attachActions(img) {
         if (existing && existing.dataset.iigError === (isError ? '1' : '0')) return;
         existing?.remove();
         host.appendChild(buildActions(img, isError));
+        restoreSavedVideos(img);
         return;
     }
 
@@ -95,6 +97,7 @@ function attachActions(img) {
     img.replaceWith(host);
     host.appendChild(img);
     host.appendChild(buildActions(img, isError));
+    restoreSavedVideos(img);
 }
 
 function buildActions(img, isError) {
@@ -130,7 +133,9 @@ function buildActions(img, isError) {
             button.disabled = true;
             const result = await animateImageInteractive(img.src, (status) => { button.title = status; });
             if (!result) return;
-            showVideoPreview(img, result.url);
+            const savedUrl = await persistGeneratedVideo(result.url);
+            await attachVideoToMessage(img, savedUrl);
+            showVideoPreview(img, savedUrl);
         } catch (error) {
             iigLog('ERROR', 'xAI video failed:', error);
             toastr.error(error?.message || 'Не удалось создать видео', 'Grok Video');
@@ -198,6 +203,50 @@ async function regenerateOne(img) {
 }
 
 
+// Video files live on the Termux SillyTavern server, not in ephemeral browser blob URLs.
+async function persistGeneratedVideo(url) {
+    const response = await fetch(url, { cache: 'no-store' });
+    if (!response.ok) throw new Error(`Не удалось скачать видео для сохранения (HTTP ${response.status})`);
+    const blob = await response.blob();
+    if (!blob.size) throw new Error('Получен пустой видеофайл.');
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    // Chunk conversion prevents argument stack overflow on long mobile videos.
+    const chunks = [];
+    for (let i = 0; i < bytes.length; i += 0x8000) {
+        chunks.push(String.fromCharCode(...bytes.subarray(i, i + 0x8000)));
+    }
+    const context = SillyTavern.getContext();
+    const filename = `iig_director_${new Date().toISOString().replace(/[:.]/g, '-')}.mp4`;
+    const upload = await fetch('/api/files/upload', {
+        method: 'POST', headers: context.getRequestHeaders(),
+        body: JSON.stringify({ name: filename, data: btoa(chunks.join('')) }),
+    });
+    if (!upload.ok) throw new Error(`SillyTavern не сохранила MP4: ${(await upload.text()).slice(0, 180)}`);
+    const result = await upload.json();
+    if (!result?.path) throw new Error('Сервер не вернул путь сохранённого видео.');
+    return encodeLocalMediaPath(result.path);
+}
+
+async function attachVideoToMessage(img, url) {
+    const el = img.closest('.mes');
+    const id = Number(el?.getAttribute('mesid'));
+    const context = SillyTavern.getContext();
+    if (!Number.isInteger(id) || !context.chat?.[id]) throw new Error('Видео сохранено, но сообщение для привязки не найдено.');
+    const msg = context.chat[id];
+    msg.extra ??= {};
+    msg.extra.iigDirectorVideos ??= [];
+    if (!msg.extra.iigDirectorVideos.includes(url)) msg.extra.iigDirectorVideos.push(url);
+    await context.saveChat();
+}
+
+function restoreSavedVideos(img) {
+    const host = img.closest('.iig-img-host');
+    if (!host || host.querySelector(':scope > .iig-xai-video-preview')) return;
+    const id = Number(img.closest('.mes')?.getAttribute('mesid'));
+    const videos = SillyTavern.getContext()?.chat?.[id]?.extra?.iigDirectorVideos;
+    if (Array.isArray(videos) && videos.length) showVideoPreview(img, videos[videos.length - 1]);
+}
+
 function showVideoPreview(img, url) {
     const host = img.closest('.iig-img-host') || img.parentElement;
     if (!host) return;
@@ -208,10 +257,13 @@ function showVideoPreview(img, url) {
     const video = document.createElement('video');
     video.src = url; video.controls = true; video.playsInline = true; video.preload = 'metadata';
     video.style.cssText = 'width:100%;max-height:75vh;border-radius:10px';
+    const download = document.createElement('a');
+    download.href = url; download.download = 'silly-director-video.mp4'; download.textContent = '⬇️ Скачать MP4';
+    download.style.cssText = 'display:inline-block;padding:6px';
     const back = document.createElement('button');
     back.type = 'button'; back.textContent = '🖼️ Скрыть видео';
     back.onclick = (e) => { e.preventDefault(); e.stopPropagation(); box.remove(); };
-    box.append(video, back);
+    box.append(video, download, back);
     host.appendChild(box);
     video.play().catch(() => {});
 }
