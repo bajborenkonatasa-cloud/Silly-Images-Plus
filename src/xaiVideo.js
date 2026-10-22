@@ -248,6 +248,26 @@ async function generateOmniVideoFromImage(imageSrc, options, onStatus = () => {}
   return { url, requestId, model: 'gemini-omni-1.1-flash', provider: 'omni', transientUrl: true };
 }
 
+// Portrait library is browser-local and independent of volatile dialog state.
+function portraitDb() {
+  return new Promise((resolve,reject)=>{
+    const req=indexedDB.open('iig-director-portraits-v1',1);
+    req.onupgradeneeded=()=>{if(!req.result.objectStoreNames.contains('portraits'))req.result.createObjectStore('portraits')};
+    req.onsuccess=()=>resolve(req.result);req.onerror=()=>reject(req.error);
+  });
+}
+async function portraitStore(action,key,value){
+  const db=await portraitDb();
+  try{return await new Promise((resolve,reject)=>{
+    const tx=db.transaction('portraits',action==='get'?'readonly':'readwrite');
+    const store=tx.objectStore('portraits');
+    const req=action==='get'?store.get(key):action==='delete'?store.delete(key):store.put(value,key);
+    req.onsuccess=()=>resolve(req.result);req.onerror=()=>reject(req.error);tx.onerror=()=>reject(tx.error);
+  })}finally{db.close()}
+}
+function portraitFileData(file){return new Promise((resolve,reject)=>{const r=new FileReader();r.onload=()=>resolve(r.result);r.onerror=()=>reject(new Error('Ошибка чтения портрета'));r.readAsDataURL(file)})}
+function normalizePortraitName(name){return String(name||'').trim().toLocaleLowerCase().slice(0,100)}
+
 // Local, zero-cost director: never sends chat data until the user confirms generation.
 function getDirectorScene(turnCount = 2, castNames = []) {
   const context = globalThis.SillyTavern?.getContext?.();
@@ -272,7 +292,7 @@ function ensureDialogStyle() {
   style.textContent = `
   .iig-xv-director{border:1px solid #ffffff33;border-radius:12px;padding:10px;margin:12px 0}.iig-xv-director button{padding:7px 10px;margin:5px 5px 5px 0;border-radius:8px}.iig-xv-director small{display:block;opacity:.8}.iig-xv-backdrop{position:fixed;inset:0;width:100vw;height:100dvh;max-width:none;max-height:none;margin:0;padding:12px;border:0;background:rgba(0,0,0,.72);box-sizing:border-box;overflow:auto;color:inherit}.iig-xv-backdrop[open]{display:flex;align-items:flex-start;justify-content:center}.iig-xv-backdrop::backdrop{background:rgba(0,0,0,.72)}
   .iig-xv-card{width:min(620px,calc(100vw - 24px));max-height:none;overflow:visible;margin:8px auto 28px;background:var(--SmartThemeBlurTintColor,#181818);color:var(--SmartThemeBodyColor,#eee);border:1px solid var(--SmartThemeBorderColor,#666);border-radius:18px;padding:18px;box-shadow:0 18px 60px #0009}
-  .iig-xv-card h3{margin:0 0 6px}.iig-xv-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.iig-xv-card label{display:grid;gap:5px;margin:10px 0}.iig-xv-prompt-wrap{padding:10px 12px;border:1px solid color-mix(in srgb,var(--SmartThemeBorderColor,#777) 70%,transparent);border-radius:13px;background:rgba(0,0,0,.16)}.iig-xv-prompt-title{font-weight:700}.iig-xv-prompt-help{font-size:.82em;opacity:.72}.iig-xv-cast-name{background:rgba(0,0,0,.35)!important;color:var(--SmartThemeBodyColor,#eee)!important;border:1px solid #ffffff55!important;border-radius:6px;padding:8px}.iig-xv-cast-name::placeholder{color:#aaa!important;opacity:1}.iig-xv-card textarea{min-height:90px;resize:vertical;background:rgba(0,0,0,.28)!important;color:var(--SmartThemeBodyColor,#eee)!important}.iig-xv-card select,.iig-xv-card textarea{width:100%}.iig-xv-cost{padding:10px 12px;border:1px solid #ffffff24;border-radius:12px;margin:10px 0}.iig-xv-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:14px}.iig-xv-actions button{width:auto!important;min-width:0!important;padding:8px 12px!important;border:1px solid rgba(255,255,255,.25)!important;border-radius:10px!important;background:rgba(18,18,22,.92)!important;color:#fff!important}.iig-xv-actions .iig-xv-go{background:rgba(48,82,130,.95)!important}.iig-xv-status{min-height:1.4em;opacity:.85}.iig-xv-card .iig-xv-audio{display:flex;align-items:center;gap:8px}.iig-xv-card .iig-xv-audio input{width:auto}@media(max-width:520px){.iig-xv-grid{grid-template-columns:1fr}.iig-xv-card{padding:13px}.iig-xv-card textarea{min-height:84px}.iig-xv-actions{padding-top:4px}}
+  .iig-xv-card h3{margin:0 0 6px}.iig-xv-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.iig-xv-card label{display:grid;gap:5px;margin:10px 0}.iig-xv-prompt-wrap{padding:10px 12px;border:1px solid color-mix(in srgb,var(--SmartThemeBorderColor,#777) 70%,transparent);border-radius:13px;background:rgba(0,0,0,.16)}.iig-xv-prompt-title{font-weight:700}.iig-xv-prompt-help{font-size:.82em;opacity:.72}.iig-xv-cast-name{background:rgba(0,0,0,.35)!important;color:var(--SmartThemeBodyColor,#eee)!important;border:1px solid #ffffff55!important;border-radius:6px;padding:8px}.iig-xv-cast-name::placeholder{color:#aaa!important;opacity:1}.iig-xv-card textarea{min-height:90px;resize:vertical;background:rgba(0,0,0,.28)!important;color:var(--SmartThemeBodyColor,#eee)!important}.iig-xv-card select,.iig-xv-card textarea{width:100%}.iig-xv-cost{padding:10px 12px;border:1px solid #ffffff24;border-radius:12px;margin:10px 0}.iig-xv-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:14px}.iig-xv-actions button{width:auto!important;min-width:0!important;padding:8px 12px!important;border:1px solid rgba(255,255,255,.25)!important;border-radius:10px!important;background:rgba(18,18,22,.92)!important;color:#fff!important}.iig-xv-actions .iig-xv-go{background:rgba(48,82,130,.95)!important}.iig-xv-status{min-height:1.4em;opacity:.85}.iig-xv-card .iig-xv-audio{display:flex;align-items:center;gap:8px}.iig-xv-card .iig-xv-audio input{width:auto}.iig-xv-portrait-slots{display:grid;grid-template-columns:1fr 1fr;gap:8px}.iig-xv-portrait-slots input{max-width:100%;font-size:.8em}.iig-xv-portrait-slots small{font-size:.75em}@media(max-width:520px){.iig-xv-portrait-slots{grid-template-columns:1fr}.iig-xv-grid{grid-template-columns:1fr}.iig-xv-card{padding:13px}.iig-xv-card textarea{min-height:84px}.iig-xv-actions{padding-top:4px}}
   `;
   document.head.appendChild(style);
 }
@@ -289,7 +309,7 @@ export function askXaiVideoOptions(initialPrompt = '') {
       <section class="iig-xv-director"><strong>🎬 ИИ-режиссёр · сценарий из ролевой</strong><small>Берёт последние сообщения только из открытого чата. Покажет сценарий для проверки; ничего не отправляет в Google до нажатия «Создать видео».</small><label>Контекст<select class="iig-xv-turns"><option value="2">Последние 2 сообщения</option><option value="4">Последние 4 сообщения</option><option value="6">Последние 6 сообщений</option></select></label><button type="button" class="iig-xv-from-chat">Взять сцену из ролевой</button><button type="button" class="iig-xv-restore">Вернуть описание картинки</button></section>
       <label class="iig-xv-prompt-wrap"><span class="iig-xv-prompt-title">✍️ Что должно произойти и что должно быть слышно</span><span class="iig-xv-prompt-help">Движение персонажей, камера, атмосфера, реплики и звуки — всё можно написать здесь.</span><textarea class="iig-xv-prompt" placeholder="Например: девушка медленно поднимает взгляд, волосы движутся от ветра, камера плавно приближается. Слышно тихий дождь…"></textarea></label>
       <section class="iig-xv-director iig-xv-cast"><strong>👥 Персонажи и NPC · до 4 человек</strong><small>Имена необязательны. Без портретов видео тоже создаётся. Если добавляешь портреты, укажи соответствующие имена по порядку.</small><div class="iig-xv-grid"><label>Персонаж 1<input class="iig-xv-cast-name" placeholder="Например, Ханаби"></label><label>Персонаж 2<input class="iig-xv-cast-name" placeholder="Например, Бо"></label><label>NPC 3<input class="iig-xv-cast-name" placeholder="Имя NPC"></label><label>NPC 4<input class="iig-xv-cast-name" placeholder="Имя NPC"></label></div></section>
-      <label class="iig-xv-references" style="display:none">Необязательные портреты персонажей / NPC (до 4 файлов JPEG/PNG/WebP)<input class="iig-xv-reference-files" type="file" accept="image/jpeg,image/png,image/webp" multiple><small>Исходная сцена передаётся отдельно. Портреты добавляй в том же порядке, что и имена ниже. Модель не гарантирует точное совпадение лиц.</small></label>
+      <section class="iig-xv-references" style="display:none"><strong>🖼️ Портреты — по одному на персонажа</strong><small>Введи имя и выбери портрет в соответствующей строке. Портрет запоминается в этом браузере и автоматически подставляется при следующей генерации.</small><div class="iig-xv-portrait-slots"></div><button type="button" class="iig-xv-clear-portraits">Очистить сохранённые портреты этих персонажей</button><small class="iig-xv-portrait-status"></small></section>
       <div class="iig-xv-grid">
         <label>Модель<select class="iig-xv-model"></select></label>
         <label>Длительность<select class="iig-xv-duration"></select></label>
@@ -302,11 +322,34 @@ export function askXaiVideoOptions(initialPrompt = '') {
     document.body.appendChild(wrap);
     wrap.showModal();
     const q = sel => wrap.querySelector(sel);
-    const provider=q('.iig-xv-provider'), promptBox=q('.iig-xv-prompt'), model=q('.iig-xv-model'), duration=q('.iig-xv-duration'), resolution=q('.iig-xv-resolution'), audio=q('.iig-xv-audio-input'), cost=q('.iig-xv-cost'), refFiles=q('.iig-xv-reference-files'), refLabel=q('.iig-xv-references');
+    const provider=q('.iig-xv-provider'), promptBox=q('.iig-xv-prompt'), model=q('.iig-xv-model'), duration=q('.iig-xv-duration'), resolution=q('.iig-xv-resolution'), audio=q('.iig-xv-audio-input'), cost=q('.iig-xv-cost'), refLabel=q('.iig-xv-references');
     let remembered={}; try { remembered=JSON.parse(localStorage.getItem('iig_video_options')||'{}'); } catch {}
     const savedCast = (()=>{try{return JSON.parse(localStorage.getItem('iig_video_cast')||'[]')}catch{return []}})();
     const castInputs=[...wrap.querySelectorAll('.iig-xv-cast-name')]; castInputs.forEach((el,i)=>el.value=String(savedCast[i]||''));
     const getCast=()=>castInputs.map(el=>el.value.trim());
+    const slotArea=q('.iig-xv-portrait-slots');
+    const portraitInputs=[];
+    for(let i=0;i<4;i++){
+      const label=document.createElement('label');label.textContent=`Портрет ${i+1}`;
+      const input=document.createElement('input');input.type='file';input.accept='image/jpeg,image/png,image/webp';
+      const note=document.createElement('small');note.textContent='Не выбран';
+      input.addEventListener('change',()=>{note.textContent=input.files?.[0]?.name||'Сохранённый портрет (если есть)'});
+      label.append(input,note);slotArea.appendChild(label);portraitInputs.push({input,note});
+    }
+    const refreshPortraitNotes=async()=>{
+      for(let i=0;i<4;i++){
+        const name=normalizePortraitName(castInputs[i].value);
+        if(!name || portraitInputs[i].input.files?.length)continue;
+        try{const saved=await portraitStore('get',name);portraitInputs[i].note.textContent=saved?'✓ Портрет сохранён — будет использован':'Портрет не выбран (необязательно)'}catch{portraitInputs[i].note.textContent='Локальное хранилище недоступно'}
+      }
+    };
+    castInputs.forEach(el=>el.addEventListener('change',refreshPortraitNotes));
+    q('.iig-xv-clear-portraits').onclick=async()=>{
+      for(const name of getCast().map(normalizePortraitName).filter(Boolean))await portraitStore('delete',name);
+      q('.iig-xv-portrait-status').textContent='Сохранённые портреты указанных персонажей удалены.';
+      refreshPortraitNotes();
+    };
+    refreshPortraitNotes();
     const originalPrompt = String(initialPrompt || localStorage.getItem('iig_video_prompt') || '');
     promptBox.value = originalPrompt;
     q('.iig-xv-from-chat').onclick = () => { try { promptBox.value = getDirectorScene(Number(q('.iig-xv-turns').value),getCast()); q('.iig-xv-status').textContent = 'Сценарий подготовлен. Проверь реплики и действия перед платной генерацией.'; } catch (e) { q('.iig-xv-status').textContent = e.message; } };
@@ -357,19 +400,24 @@ export function askXaiVideoOptions(initialPrompt = '') {
     const finish=value=>{try{wrap.close();}catch{} wrap.remove(); resolve(value);};
     q('.iig-xv-cancel').onclick=()=>finish(null); wrap.addEventListener('click',e=>{if(e.target===wrap)finish(null)}); wrap.addEventListener('cancel',e=>{e.preventDefault();finish(null)});
     q('.iig-xv-go').onclick=async()=>{
-      const files = provider.value === 'omni' ? [...refFiles.files] : [];
-      if (files.length > 4) { q('.iig-xv-status').textContent='Не больше 4 дополнительных референсов.'; return; }
-      if (files.some(f => !['image/jpeg','image/png','image/webp'].includes(f.type) || f.size > 12 * 1024 * 1024)) {
-        q('.iig-xv-status').textContent='Референсы: JPEG/PNG/WebP, каждый до 12 МБ.'; return;
-      }
       const castNames=getCast();
-      
-      const referenceImages = await Promise.all(files.map(f => new Promise((resolve,reject)=>{
-        const reader=new FileReader(); reader.onload=()=>resolve(reader.result); reader.onerror=reject; reader.readAsDataURL(f);
-      })));
-      const identityGuide=files.map((_,i)=>castNames[i] ? `Reference portrait ${i+1} depicts ${castNames[i]}. Preserve this person’s identity and do not mix them with other cast members.` : '').filter(Boolean).join('\n');
+      const referenceImages=[];
+      if(provider.value==='omni'){
+        for(let i=0;i<4;i++){
+          const name=normalizePortraitName(castNames[i]);
+          const file=portraitInputs[i].input.files?.[0];
+          if(file && (!['image/jpeg','image/png','image/webp'].includes(file.type) || file.size>12*1024*1024)){
+            q('.iig-xv-status').textContent=`Портрет ${i+1}: только JPEG/PNG/WebP до 12 МБ.`;return;
+          }
+          let data=null;
+          if(file){data=await portraitFileData(file);if(name)await portraitStore('put',name,data)}
+          else if(name)data=await portraitStore('get',name);
+          if(data)referenceImages.push({name:castNames[i]||`Character ${i+1}`,data});
+        }
+      }
+      const identityGuide=referenceImages.map((ref,i)=>`Reference portrait ${i+1} depicts ${ref.name}. Preserve the same face, hairstyle and distinctive traits; do not swap identities.`).join('\n');
       const finalPrompt=promptBox.value.trim() + (provider.value==='omni' && files.length && identityGuide ? '\n\nCHARACTER REFERENCE MAP:\n'+identityGuide : '');
-      const value={provider:provider.value,prompt:finalPrompt,model:model.value,duration:Number(duration.value),resolution:resolution.value,generateAudio:audio.checked,aspectRatio:'9:16',referenceImages};
+      const value={provider:provider.value,prompt:finalPrompt,model:model.value,duration:Number(duration.value),resolution:resolution.value,generateAudio:audio.checked,aspectRatio:'9:16',referenceImages:referenceImages.map(r=>r.data)};
       localStorage.setItem('iig_video_cast',JSON.stringify(castNames)); localStorage.setItem('iig_video_prompt',promptBox.value.trim()); localStorage.setItem('iig_video_options',JSON.stringify({...value, prompt:'', referenceImages: []})); finish(value);
     };
   });

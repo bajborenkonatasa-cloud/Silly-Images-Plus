@@ -85,7 +85,7 @@ function attachActions(img) {
 
     if (host?.classList?.contains('iig-img-host')) {
         const existing = host.querySelector(':scope > .iig-img-actions');
-        if (existing && existing.dataset.iigError === (isError ? '1' : '0')) return;
+        if (existing && existing.dataset.iigError === (isError ? '1' : '0')) { restoreSavedVideos(img); return; }
         existing?.remove();
         host.appendChild(buildActions(img, isError));
         restoreSavedVideos(img);
@@ -133,9 +133,17 @@ function buildActions(img, isError) {
             button.disabled = true;
             const result = await animateImageInteractive(img.src, (status) => { button.title = status; });
             if (!result) return;
-            const savedUrl = await persistGeneratedVideo(result.url);
-            await attachVideoToMessage(img, savedUrl);
-            showVideoPreview(img, savedUrl);
+            // Keep the generated video visible even if permanent storage fails.
+            showVideoPreview(img, result.url);
+            try {
+                const savedUrl = await persistGeneratedVideo(result.url, img);
+                await attachVideoToMessage(img, savedUrl);
+                if (!savedUrl.startsWith('iig-idb:')) showVideoPreview(img, savedUrl);
+                toastr.success('Видео сохранено. Оно восстановится при повторном входе.', 'Director Studio');
+            } catch (saveError) {
+                iigLog('ERROR', 'Video persistence failed:', saveError);
+                toastr.warning('Видео готово, но сохранить его не удалось. Скачай MP4 сейчас: ' + saveError.message, 'Director Studio', { timeOut: 12000 });
+            }
         } catch (error) {
             iigLog('ERROR', 'xAI video failed:', error);
             toastr.error(error?.message || 'Не удалось создать видео', 'Grok Video');
@@ -203,48 +211,97 @@ async function regenerateOne(img) {
 }
 
 
-// Video files live on the Termux SillyTavern server, not in ephemeral browser blob URLs.
-async function persistGeneratedVideo(url) {
-    const response = await fetch(url, { cache: 'no-store' });
-    if (!response.ok) throw new Error(`Не удалось скачать видео для сохранения (HTTP ${response.status})`);
-    const blob = await response.blob();
-    if (!blob.size) throw new Error('Получен пустой видеофайл.');
-    const bytes = new Uint8Array(await blob.arrayBuffer());
-    // Chunk conversion prevents argument stack overflow on long mobile videos.
-    const chunks = [];
-    for (let i = 0; i < bytes.length; i += 0x8000) {
-        chunks.push(String.fromCharCode(...bytes.subarray(i, i + 0x8000)));
-    }
-    const context = SillyTavern.getContext();
-    const filename = `iig_director_${new Date().toISOString().replace(/[:.]/g, '-')}.mp4`;
-    const upload = await fetch('/api/files/upload', {
-        method: 'POST', headers: context.getRequestHeaders(),
-        body: JSON.stringify({ name: filename, data: btoa(chunks.join('')) }),
+// IndexedDB is a durable local fallback when the server's upload route is unavailable.
+// On Android/Termux it survives page reloads in the SAME browser profile/origin.
+const DIRECTOR_DB = 'iig-director-v4';
+function openDirectorDb() {
+    return new Promise((resolve, reject) => {
+        const req = indexedDB.open(DIRECTOR_DB, 1);
+        req.onupgradeneeded = () => {
+            const db = req.result;
+            if (!db.objectStoreNames.contains('videos')) db.createObjectStore('videos');
+        };
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
     });
-    if (!upload.ok) throw new Error(`SillyTavern не сохранила MP4: ${(await upload.text()).slice(0, 180)}`);
-    const result = await upload.json();
-    if (!result?.path) throw new Error('Сервер не вернул путь сохранённого видео.');
-    return encodeLocalMediaPath(result.path);
 }
-
+async function videoDb(action, key, value) {
+    const db = await openDirectorDb();
+    try {
+        return await new Promise((resolve, reject) => {
+            const tx = db.transaction('videos', action === 'get' ? 'readonly' : 'readwrite');
+            const req = action === 'get' ? tx.objectStore('videos').get(key) : tx.objectStore('videos').put(value, key);
+            req.onsuccess = () => resolve(req.result);
+            req.onerror = () => reject(req.error);
+            tx.onerror = () => reject(tx.error);
+        });
+    } finally { db.close(); }
+}
+function directorMediaKey(img) {
+    const context = SillyTavern.getContext();
+    const msg = img.closest('.mes');
+    const messageId = Number(msg?.getAttribute('mesid'));
+    const chatId = context.getCurrentChatId?.() || context.chatId || context.chatMetadata?.main_chat || 'default';
+    const images = [...(msg?.querySelectorAll('img[data-iig-instruction]') || [])];
+    const imageIndex = images.indexOf(img);
+    if (!Number.isInteger(messageId) || messageId < 0 || imageIndex < 0) throw new Error('Не удалось определить картинку и сообщение.');
+    return `${chatId}::${messageId}::${imageIndex}`;
+}
+async function persistGeneratedVideo(url, img) {
+    const response = await fetch(url, { cache: 'no-store' });
+    if (!response.ok) throw new Error(`Не удалось прочитать MP4 (HTTP ${response.status})`);
+    const blob = await response.blob();
+    if (!blob.size) throw new Error('Пустой видеофайл.');
+    // Save locally FIRST, before attempting server upload. No silent loss on server error.
+    const key = directorMediaKey(img);
+    await videoDb('put', key, blob);
+    try {
+        const bytes = new Uint8Array(await blob.arrayBuffer());
+        const chunks = [];
+        for (let i = 0; i < bytes.length; i += 0x8000) chunks.push(String.fromCharCode(...bytes.subarray(i, i + 0x8000)));
+        const context = SillyTavern.getContext();
+        const filename = `iig_director_${new Date().toISOString().replace(/[:.]/g, '-')}.mp4`;
+        const upload = await fetch('/api/files/upload', {
+            method: 'POST', headers: context.getRequestHeaders(),
+            body: JSON.stringify({ name: filename, data: btoa(chunks.join('')) }),
+        });
+        if (!upload.ok) throw new Error(`HTTP ${upload.status}`);
+        const result = await upload.json();
+        if (!result?.path) throw new Error('Путь не возвращён сервером');
+        return encodeLocalMediaPath(result.path);
+    } catch (error) {
+        iigLog('WARN', 'Server MP4 upload failed, using local IndexedDB backup:', error);
+        return `iig-idb:${key}`;
+    }
+}
 async function attachVideoToMessage(img, url) {
     const el = img.closest('.mes');
     const id = Number(el?.getAttribute('mesid'));
     const context = SillyTavern.getContext();
-    if (!Number.isInteger(id) || !context.chat?.[id]) throw new Error('Видео сохранено, но сообщение для привязки не найдено.');
+    if (!Number.isInteger(id) || !context.chat?.[id]) throw new Error('Сообщение для сохранения не найдено.');
     const msg = context.chat[id];
     msg.extra ??= {};
     msg.extra.iigDirectorVideos ??= [];
     if (!msg.extra.iigDirectorVideos.includes(url)) msg.extra.iigDirectorVideos.push(url);
     await context.saveChat();
 }
-
-function restoreSavedVideos(img) {
+const restoringVideos = new WeakSet();
+async function restoreSavedVideos(img) {
     const host = img.closest('.iig-img-host');
-    if (!host || host.querySelector(':scope > .iig-xai-video-preview')) return;
-    const id = Number(img.closest('.mes')?.getAttribute('mesid'));
-    const videos = SillyTavern.getContext()?.chat?.[id]?.extra?.iigDirectorVideos;
-    if (Array.isArray(videos) && videos.length) showVideoPreview(img, videos[videos.length - 1]);
+    if (!host || host.querySelector(':scope > .iig-xai-video-preview') || restoringVideos.has(img)) return;
+    restoringVideos.add(img);
+    try {
+        const id = Number(img.closest('.mes')?.getAttribute('mesid'));
+        const videos = SillyTavern.getContext()?.chat?.[id]?.extra?.iigDirectorVideos;
+        const saved = Array.isArray(videos) ? videos[videos.length - 1] : null;
+        if (saved && !saved.startsWith('iig-idb:')) { showVideoPreview(img, saved); return; }
+        const key = saved?.startsWith('iig-idb:') ? saved.slice('iig-idb:'.length) : directorMediaKey(img);
+        const blob = await videoDb('get', key);
+        if (blob instanceof Blob && img.isConnected && !host.querySelector(':scope > .iig-xai-video-preview')) {
+            showVideoPreview(img, URL.createObjectURL(blob));
+        }
+    } catch (error) { iigLog('WARN', 'Video restore skipped:', error); }
+    finally { restoringVideos.delete(img); }
 }
 
 function showVideoPreview(img, url) {
