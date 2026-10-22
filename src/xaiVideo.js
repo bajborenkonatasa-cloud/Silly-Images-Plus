@@ -400,6 +400,7 @@ export function askXaiVideoOptions(initialPrompt = '') {
     const finish=value=>{try{wrap.close();}catch{} wrap.remove(); resolve(value);};
     q('.iig-xv-cancel').onclick=()=>finish(null); wrap.addEventListener('click',e=>{if(e.target===wrap)finish(null)}); wrap.addEventListener('cancel',e=>{e.preventDefault();finish(null)});
     q('.iig-xv-go').onclick=async()=>{
+      try {
       const castNames=getCast();
       const referenceImages=[];
       if(provider.value==='omni'){
@@ -416,9 +417,13 @@ export function askXaiVideoOptions(initialPrompt = '') {
         }
       }
       const identityGuide=referenceImages.map((ref,i)=>`Reference portrait ${i+1} depicts ${ref.name}. Preserve the same face, hairstyle and distinctive traits; do not swap identities.`).join('\n');
-      const finalPrompt=promptBox.value.trim() + (provider.value==='omni' && files.length && identityGuide ? '\n\nCHARACTER REFERENCE MAP:\n'+identityGuide : '');
+      const finalPrompt=promptBox.value.trim() + (provider.value==='omni' && referenceImages.length && identityGuide ? '\n\nCHARACTER REFERENCE MAP:\n'+identityGuide : '');
       const value={provider:provider.value,prompt:finalPrompt,model:model.value,duration:Number(duration.value),resolution:resolution.value,generateAudio:audio.checked,aspectRatio:'9:16',referenceImages:referenceImages.map(r=>r.data)};
       localStorage.setItem('iig_video_cast',JSON.stringify(castNames)); localStorage.setItem('iig_video_prompt',promptBox.value.trim()); localStorage.setItem('iig_video_options',JSON.stringify({...value, prompt:'', referenceImages: []})); finish(value);
+      } catch(error) {
+        console.error('[Director Studio] Ошибка подготовки видео:',error);
+        q('.iig-xv-status').textContent='Не удалось подготовить видео: '+(error?.message||String(error));
+      }
     };
   });
 }
