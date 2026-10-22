@@ -190,18 +190,25 @@ async function generateOmniVideoFromImage(imageSrc, options, onStatus = () => {}
   const prompt = String(options.prompt || '').trim();
   if (!prompt) throw new Error('Опиши движение для Gemini Omni.');
   onStatus('Подготавливаю изображение для Gemini Omni…');
-  const parts = dataUrlParts(await imageAsDataUrl(imageSrc));
+  const sources = [imageSrc, ...(options.referenceImages || [])];
+  if (sources.length > 5) throw new Error('Для этого режима выбери не более 5 референсов.');
+  const images = await Promise.all(sources.map(async src => {
+    const parts = dataUrlParts(await imageAsDataUrl(src));
+    return { type: 'image', data: parts.data, mime_type: parts.mimeType };
+  }));
+  const requestedDuration = Number(options.duration);
+  const videoFormat = {
+    type: 'video', aspect_ratio: options.aspectRatio || '9:16',
+    resolution: options.resolution || '360p',
+    ...(Number.isInteger(requestedDuration) && requestedDuration >= 3 && requestedDuration <= 10
+      ? { duration: `${requestedDuration}s` } : {}),
+  };
   const body = {
     model: 'gemini-omni-1.1-flash',
-    input: [
-      { type: 'image', data: parts.data, mime_type: parts.mimeType },
-      { type: 'text', text: prompt },
-    ],
-    response_format: {
-      type: 'video', aspect_ratio: options.aspectRatio || '9:16',
-      resolution: options.resolution || '720p',
-    },
-    generation_config: { video_config: { task: 'image_to_video' } },
+    input: [...images, { type: 'text', text: prompt }],
+    response_format: videoFormat,
+    generation_config: { video_config: { task: 'reference_to_video' } },
+    background: true,
   };
   onStatus('Отправляю запрос Gemini Omni…');
   const response = await fetch(`${GEMINI_BASE}/interactions`, {
@@ -263,6 +270,7 @@ export function askXaiVideoOptions(initialPrompt = '') {
       <div style="opacity:.75">Исходная картинка останется на месте. Выбери Grok, Google Veo или Gemini Omni.</div>
       <label>Видеодвижок<select class="iig-xv-provider"><option value="grok">xAI · Grok Imagine Video</option><option value="veo">Google · Veo 3.1 (устаревшая Preview)</option><option value="omni">Google · Gemini Omni 1.1 Flash</option></select></label>
       <label class="iig-xv-prompt-wrap"><span class="iig-xv-prompt-title">✍️ Что должно произойти и что должно быть слышно</span><span class="iig-xv-prompt-help">Движение персонажей, камера, атмосфера, реплики и звуки — всё можно написать здесь.</span><textarea class="iig-xv-prompt" placeholder="Например: девушка медленно поднимает взгляд, волосы движутся от ветра, камера плавно приближается. Слышно тихий дождь…"></textarea></label>
+      <label class="iig-xv-references" style="display:none">Дополнительные референсы Бо / Ханаби (до 4 файлов JPEG/PNG/WebP)<input class="iig-xv-reference-files" type="file" accept="image/jpeg,image/png,image/webp" multiple><small>Исходная картинка уже считается первым референсом. Дополнительные файлы используются только для Gemini Omni.</small></label>
       <div class="iig-xv-grid">
         <label>Модель<select class="iig-xv-model"></select></label>
         <label>Длительность<select class="iig-xv-duration"></select></label>
@@ -275,7 +283,7 @@ export function askXaiVideoOptions(initialPrompt = '') {
     document.body.appendChild(wrap);
     wrap.showModal();
     const q = sel => wrap.querySelector(sel);
-    const provider=q('.iig-xv-provider'), promptBox=q('.iig-xv-prompt'), model=q('.iig-xv-model'), duration=q('.iig-xv-duration'), resolution=q('.iig-xv-resolution'), audio=q('.iig-xv-audio-input'), cost=q('.iig-xv-cost');
+    const provider=q('.iig-xv-provider'), promptBox=q('.iig-xv-prompt'), model=q('.iig-xv-model'), duration=q('.iig-xv-duration'), resolution=q('.iig-xv-resolution'), audio=q('.iig-xv-audio-input'), cost=q('.iig-xv-cost'), refFiles=q('.iig-xv-reference-files'), refLabel=q('.iig-xv-references');
     let remembered={}; try { remembered=JSON.parse(localStorage.getItem('iig_video_options')||'{}'); } catch {}
     promptBox.value=String(initialPrompt || localStorage.getItem('iig_video_prompt') || '');
     if (['veo', 'grok', 'omni'].includes(remembered.provider)) provider.value=remembered.provider;
@@ -283,15 +291,18 @@ export function askXaiVideoOptions(initialPrompt = '') {
     const rebuild=()=>{
       if(provider.value==='omni'){
         fill(model,[['gemini-omni-1.1-flash','Gemini Omni 1.1 Flash']],'gemini-omni-1.1-flash');
-        fill(duration,[[0,'Автоматически · 3–10 сек']],0);
+        fill(duration,[[8,'8 секунд'],[0,'Автоматически · 3–10 сек'],[5,'5 секунд'],[10,'10 секунд']],remembered.provider==='omni'?remembered.duration:8);
         fill(resolution,[['360p','360p'],['720p','720p · HD'],['1080p','1080p · Full HD'],['4k','4K']],remembered.provider==='omni'?remembered.resolution:'720p');
         audio.checked=true; audio.disabled=true;
+        refLabel.style.display='grid';
       } else if(provider.value==='veo'){
+        refLabel.style.display='none';
         fill(model,Object.entries(VEO_MODELS).map(([v,x])=>[v,x.label]), remembered.provider==='veo'?remembered.model:'veo-3.1-lite-generate-preview');
         fill(duration,[[4,'4 сек'],[6,'6 сек'],[8,'8 сек']],remembered.provider==='veo'?remembered.duration:8);
         fill(resolution,[['720p','720p · экономно'],['1080p','1080p · 8 сек'],['4k','4K · 8 сек']],remembered.provider==='veo'?remembered.resolution:'720p');
         audio.checked=true; audio.disabled=true; audio.closest('label').title='Veo 3.1 генерирует аудио вместе с видео';
       } else {
+        refLabel.style.display='none';
         fill(model,Object.entries(VIDEO_MODELS).map(([v,x])=>[v,x.label]),remembered.provider==='grok'?remembered.model:'grok-imagine-video');
         fill(duration,[[3,'3 сек'],[5,'5 сек'],[8,'8 сек'],[10,'10 сек'],[15,'15 сек']],remembered.provider==='grok'?remembered.duration:5);
         fill(resolution,[['480p','480p · дёшево'],['720p','720p · HD'],['1080p','1080p · Full HD']],remembered.provider==='grok'?remembered.resolution:'720p');
@@ -320,8 +331,16 @@ export function askXaiVideoOptions(initialPrompt = '') {
     provider.addEventListener('change',()=>{remembered={provider:provider.value};rebuild();}); model.addEventListener('change',update); duration.addEventListener('change',update); resolution.addEventListener('change',update); rebuild();
     const finish=value=>{try{wrap.close();}catch{} wrap.remove(); resolve(value);};
     q('.iig-xv-cancel').onclick=()=>finish(null); wrap.addEventListener('click',e=>{if(e.target===wrap)finish(null)}); wrap.addEventListener('cancel',e=>{e.preventDefault();finish(null)});
-    q('.iig-xv-go').onclick=()=>{
-      const value={provider:provider.value,prompt:promptBox.value.trim(),model:model.value,duration:Number(duration.value),resolution:resolution.value,generateAudio:audio.checked,aspectRatio:'9:16'};
+    q('.iig-xv-go').onclick=async()=>{
+      const files = provider.value === 'omni' ? [...refFiles.files] : [];
+      if (files.length > 4) { q('.iig-xv-status').textContent='Не больше 4 дополнительных референсов.'; return; }
+      if (files.some(f => !['image/jpeg','image/png','image/webp'].includes(f.type) || f.size > 12 * 1024 * 1024)) {
+        q('.iig-xv-status').textContent='Референсы: JPEG/PNG/WebP, каждый до 12 МБ.'; return;
+      }
+      const referenceImages = await Promise.all(files.map(f => new Promise((resolve,reject)=>{
+        const reader=new FileReader(); reader.onload=()=>resolve(reader.result); reader.onerror=reject; reader.readAsDataURL(f);
+      })));
+      const value={provider:provider.value,prompt:promptBox.value.trim(),model:model.value,duration:Number(duration.value),resolution:resolution.value,generateAudio:audio.checked,aspectRatio:'9:16',referenceImages};
       localStorage.setItem('iig_video_prompt',value.prompt); localStorage.setItem('iig_video_options',JSON.stringify(value)); finish(value);
     };
   });
