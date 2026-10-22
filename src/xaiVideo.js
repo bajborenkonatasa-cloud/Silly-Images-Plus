@@ -184,6 +184,63 @@ async function generateVeoVideoFromImage(imageSrc, options, onStatus = () => {})
   throw new Error('Google Veo не завершил генерацию за 15 минут.');
 }
 
+// Gemini Omni uses Interactions API, not Veo predictLongRunning.
+async function generateOmniVideoFromImage(imageSrc, options, onStatus = () => {}) {
+  const { apiKey } = geminiConfig();
+  const prompt = String(options.prompt || '').trim();
+  if (!prompt) throw new Error('Опиши движение для Gemini Omni.');
+  onStatus('Подготавливаю изображение для Gemini Omni…');
+  const parts = dataUrlParts(await imageAsDataUrl(imageSrc));
+  const body = {
+    model: 'gemini-omni-1.1-flash',
+    input: [
+      { type: 'image', data: parts.data, mime_type: parts.mimeType },
+      { type: 'text', text: prompt },
+    ],
+    response_format: {
+      type: 'video', aspect_ratio: options.aspectRatio || '9:16',
+      resolution: options.resolution || '720p',
+    },
+    generation_config: { video_config: { task: 'image_to_video' } },
+  };
+  onStatus('Отправляю запрос Gemini Omni…');
+  const response = await fetch(`${GEMINI_BASE}/interactions`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
+    body: JSON.stringify(body),
+  });
+  let result = await parseJson(response);
+  const requestId = result.id;
+  const started = Date.now();
+  while (result.status !== 'completed' && Date.now() - started < 15 * 60 * 1000) {
+    if (['failed', 'cancelled', 'expired'].includes(result.status)) throw new Error(result.error?.message || `Omni: ${result.status}`);
+    if (!requestId) throw new Error('Gemini Omni не вернул идентификатор генерации.');
+    await new Promise(r => setTimeout(r, 10000));
+    onStatus(`Gemini Omni создаёт видео… ${Math.round((Date.now() - started) / 1000)}с`);
+    result = await parseJson(await fetch(`${GEMINI_BASE}/interactions/${encodeURIComponent(requestId)}`, {
+      headers: { 'x-goog-api-key': apiKey }, cache: 'no-store',
+    }));
+  }
+  if (result.status !== 'completed') throw new Error('Gemini Omni не завершил генерацию за 15 минут.');
+  const contents = (result.steps || []).filter(step => step.type === 'model_output').flatMap(step => step.content || []);
+  const video = contents.find(part => part.type === 'video');
+  if (!video) throw new Error('Gemini Omni завершил запрос, но не вернул видео.');
+  let blob;
+  if (video.data) {
+    const bytes = atob(video.data);
+    const arr = new Uint8Array(bytes.length);
+    for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
+    blob = new Blob([arr], { type: video.mime_type || 'video/mp4' });
+  } else if (video.uri) {
+    const file = await fetch(video.uri, { headers: { 'x-goog-api-key': apiKey } });
+    if (!file.ok) throw new Error(`Ошибка загрузки видео Omni: HTTP ${file.status}`);
+    blob = await file.blob();
+  } else throw new Error('Omni не вернул данные видео или ссылку.');
+  const url = URL.createObjectURL(blob);
+  onStatus('Gemini Omni: видео готово');
+  iigLog('INFO', 'Gemini Omni video ready');
+  return { url, requestId, model: 'gemini-omni-1.1-flash', provider: 'omni', transientUrl: true };
+}
+
 function ensureDialogStyle() {
   if (document.getElementById('iig-xai-video-style')) return;
   const style = document.createElement('style');
@@ -203,8 +260,8 @@ export function askXaiVideoOptions(initialPrompt = '') {
     wrap.setAttribute('aria-label', 'Video generator');
     wrap.innerHTML = `<div class="iig-xv-card" role="dialog" aria-modal="true">
       <h3>🎬 Оживить изображение</h3>
-      <div style="opacity:.75">Исходная картинка останется на месте. Выбери Grok или Google Veo.</div>
-      <label>Видеодвижок<select class="iig-xv-provider"><option value="grok">xAI · Grok Imagine Video</option><option value="veo">Google · Veo 3.1</option></select></label>
+      <div style="opacity:.75">Исходная картинка останется на месте. Выбери Grok, Google Veo или Gemini Omni.</div>
+      <label>Видеодвижок<select class="iig-xv-provider"><option value="grok">xAI · Grok Imagine Video</option><option value="veo">Google · Veo 3.1 (устаревшая Preview)</option><option value="omni">Google · Gemini Omni 1.1 Flash</option></select></label>
       <label class="iig-xv-prompt-wrap"><span class="iig-xv-prompt-title">✍️ Что должно произойти и что должно быть слышно</span><span class="iig-xv-prompt-help">Движение персонажей, камера, атмосфера, реплики и звуки — всё можно написать здесь.</span><textarea class="iig-xv-prompt" placeholder="Например: девушка медленно поднимает взгляд, волосы движутся от ветра, камера плавно приближается. Слышно тихий дождь…"></textarea></label>
       <div class="iig-xv-grid">
         <label>Модель<select class="iig-xv-model"></select></label>
@@ -221,10 +278,15 @@ export function askXaiVideoOptions(initialPrompt = '') {
     const provider=q('.iig-xv-provider'), promptBox=q('.iig-xv-prompt'), model=q('.iig-xv-model'), duration=q('.iig-xv-duration'), resolution=q('.iig-xv-resolution'), audio=q('.iig-xv-audio-input'), cost=q('.iig-xv-cost');
     let remembered={}; try { remembered=JSON.parse(localStorage.getItem('iig_video_options')||'{}'); } catch {}
     promptBox.value=String(initialPrompt || localStorage.getItem('iig_video_prompt') || '');
-    if (remembered.provider === 'veo' || remembered.provider === 'grok') provider.value=remembered.provider;
+    if (['veo', 'grok', 'omni'].includes(remembered.provider)) provider.value=remembered.provider;
     const fill=(el, items, selected)=>{ el.innerHTML=items.map(([v,l])=>`<option value="${v}">${l}</option>`).join(''); if([...el.options].some(o=>o.value===String(selected))) el.value=String(selected); };
     const rebuild=()=>{
-      if(provider.value==='veo'){
+      if(provider.value==='omni'){
+        fill(model,[['gemini-omni-1.1-flash','Gemini Omni 1.1 Flash']],'gemini-omni-1.1-flash');
+        fill(duration,[[0,'Автоматически · 3–10 сек']],0);
+        fill(resolution,[['360p','360p'],['720p','720p · HD'],['1080p','1080p · Full HD'],['4k','4K']],remembered.provider==='omni'?remembered.resolution:'720p');
+        audio.checked=true; audio.disabled=true;
+      } else if(provider.value==='veo'){
         fill(model,Object.entries(VEO_MODELS).map(([v,x])=>[v,x.label]), remembered.provider==='veo'?remembered.model:'veo-3.1-lite-generate-preview');
         fill(duration,[[4,'4 сек'],[6,'6 сек'],[8,'8 сек']],remembered.provider==='veo'?remembered.duration:8);
         fill(resolution,[['720p','720p · экономно'],['1080p','1080p · 8 сек'],['4k','4K · 8 сек']],remembered.provider==='veo'?remembered.resolution:'720p');
@@ -238,7 +300,9 @@ export function askXaiVideoOptions(initialPrompt = '') {
       update();
     };
     const update=()=>{
-      if(provider.value==='veo'){
+      if(provider.value==='omni'){
+        cost.textContent='Gemini Omni: стоимость зависит от разрешения и длительности. Проверяй тариф Google перед запуском.';
+      } else if(provider.value==='veo'){
         const info=VEO_MODELS[model.value];
         [...resolution.options].forEach(o=>o.disabled=!info?.rates?.[o.value]);
         if(!info?.rates?.[resolution.value]) resolution.value='720p';
@@ -265,7 +329,7 @@ export function askXaiVideoOptions(initialPrompt = '') {
 export async function animateImageInteractive(imageSrc, onStatus = () => {}, initialPrompt = '') {
   const options = await askXaiVideoOptions(initialPrompt);
   if (!options) return null;
-  return options.provider === 'veo' ? generateVeoVideoFromImage(imageSrc, options, onStatus) : generateXaiVideoFromImage(imageSrc, options, onStatus);
+  return options.provider === 'omni' ? generateOmniVideoFromImage(imageSrc, options, onStatus) : options.provider === 'veo' ? generateVeoVideoFromImage(imageSrc, options, onStatus) : generateXaiVideoFromImage(imageSrc, options, onStatus);
 }
 
 
@@ -279,6 +343,7 @@ if (typeof globalThis !== 'undefined') {
     generateXaiVideoFromImage,
     estimateXaiVideoCost,
     generateVeoVideoFromImage,
+    generateOmniVideoFromImage,
     estimateVeoVideoCost,
   };
 }
