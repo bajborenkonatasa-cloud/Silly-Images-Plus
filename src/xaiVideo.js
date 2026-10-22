@@ -229,7 +229,7 @@ async function generateOmniVideoFromImage(imageSrc, options, onStatus = () => {}
   }
   if (result.status !== 'completed') throw new Error('Gemini Omni не завершил генерацию за 15 минут.');
   const contents = (result.steps || []).filter(step => step.type === 'model_output').flatMap(step => step.content || []);
-  const video = contents.find(part => part.type === 'video');
+  const video = result.output_video || contents.find(part => part.type === 'video');
   if (!video) throw new Error('Gemini Omni завершил запрос, но не вернул видео.');
   let blob;
   if (video.data) {
@@ -248,12 +248,27 @@ async function generateOmniVideoFromImage(imageSrc, options, onStatus = () => {}
   return { url, requestId, model: 'gemini-omni-1.1-flash', provider: 'omni', transientUrl: true };
 }
 
+// Director assistant: reads only the current SillyTavern chat in memory; no extra API calls.
+function getDirectorScene(turnCount = 2) {
+  const context = globalThis.SillyTavern?.getContext?.();
+  const chat = context?.chat;
+  if (!Array.isArray(chat) || !chat.length) throw new Error('Не удалось прочитать сообщения текущего чата SillyTavern.');
+  const selected = chat.filter(m => !m.is_system && !m.is_group && typeof m.mes === 'string' && m.mes.trim()).slice(-turnCount);
+  if (!selected.length) throw new Error('В текущем чате нет подходящих сообщений.');
+  const text = selected.map(m => {
+    const role = m.is_user ? 'USER' : 'CHARACTER';
+    const name = String(m.name || (m.is_user ? 'User' : 'Character')).slice(0, 70);
+    return `${role} (${name}): ${m.mes.replace(/<[^>]*>/g, ' ').slice(0, 2200)}`;
+  }).join('\n\n');
+  return `Create a coherent cinematic scene based on the following roleplay excerpt. Use the provided image as the visual starting point and preserve the characters' faces, outfits and setting. Animate only the most important actions that can fit into 8 seconds. If the excerpt contains dialogue, use at most one short spoken line, verbatim and in its original language; do not invent additional dialogue. Keep natural timing, subtle facial acting, realistic ambient sound and a gentle camera push-in. Do not render subtitles or on-screen text.\n\nROLEPLAY EXCERPT:\n${text}`;
+}
+
 function ensureDialogStyle() {
   if (document.getElementById('iig-xai-video-style')) return;
   const style = document.createElement('style');
   style.id = 'iig-xai-video-style';
   style.textContent = `
-  .iig-xv-backdrop{position:fixed;inset:0;width:100vw;height:100dvh;max-width:none;max-height:none;margin:0;padding:12px;border:0;background:rgba(0,0,0,.72);box-sizing:border-box;overflow:auto;color:inherit}.iig-xv-backdrop[open]{display:flex;align-items:flex-start;justify-content:center}.iig-xv-backdrop::backdrop{background:rgba(0,0,0,.72)}
+  .iig-xv-director{border:1px solid #ffffff33;border-radius:12px;padding:10px;margin:12px 0}.iig-xv-director button{padding:7px 10px;margin:5px 5px 5px 0;border-radius:8px}.iig-xv-director small{display:block;opacity:.8}.iig-xv-backdrop{position:fixed;inset:0;width:100vw;height:100dvh;max-width:none;max-height:none;margin:0;padding:12px;border:0;background:rgba(0,0,0,.72);box-sizing:border-box;overflow:auto;color:inherit}.iig-xv-backdrop[open]{display:flex;align-items:flex-start;justify-content:center}.iig-xv-backdrop::backdrop{background:rgba(0,0,0,.72)}
   .iig-xv-card{width:min(620px,calc(100vw - 24px));max-height:none;overflow:visible;margin:8px auto 28px;background:var(--SmartThemeBlurTintColor,#181818);color:var(--SmartThemeBodyColor,#eee);border:1px solid var(--SmartThemeBorderColor,#666);border-radius:18px;padding:18px;box-shadow:0 18px 60px #0009}
   .iig-xv-card h3{margin:0 0 6px}.iig-xv-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.iig-xv-card label{display:grid;gap:5px;margin:10px 0}.iig-xv-prompt-wrap{padding:10px 12px;border:1px solid color-mix(in srgb,var(--SmartThemeBorderColor,#777) 70%,transparent);border-radius:13px;background:rgba(0,0,0,.16)}.iig-xv-prompt-title{font-weight:700}.iig-xv-prompt-help{font-size:.82em;opacity:.72}.iig-xv-card textarea{min-height:90px;resize:vertical;background:rgba(0,0,0,.28)!important;color:var(--SmartThemeBodyColor,#eee)!important}.iig-xv-card select,.iig-xv-card textarea{width:100%}.iig-xv-cost{padding:10px 12px;border:1px solid #ffffff24;border-radius:12px;margin:10px 0}.iig-xv-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:14px}.iig-xv-actions button{width:auto!important;min-width:0!important;padding:8px 12px!important;border:1px solid rgba(255,255,255,.25)!important;border-radius:10px!important;background:rgba(18,18,22,.92)!important;color:#fff!important}.iig-xv-actions .iig-xv-go{background:rgba(48,82,130,.95)!important}.iig-xv-status{min-height:1.4em;opacity:.85}.iig-xv-card .iig-xv-audio{display:flex;align-items:center;gap:8px}.iig-xv-card .iig-xv-audio input{width:auto}@media(max-width:520px){.iig-xv-grid{grid-template-columns:1fr}.iig-xv-card{padding:13px}.iig-xv-card textarea{min-height:84px}.iig-xv-actions{padding-top:4px}}
   `;
@@ -269,6 +284,7 @@ export function askXaiVideoOptions(initialPrompt = '') {
       <h3>🎬 Оживить изображение</h3>
       <div style="opacity:.75">Исходная картинка останется на месте. Выбери Grok, Google Veo или Gemini Omni.</div>
       <label>Видеодвижок<select class="iig-xv-provider"><option value="grok">xAI · Grok Imagine Video</option><option value="veo">Google · Veo 3.1 (устаревшая Preview)</option><option value="omni">Google · Gemini Omni 1.1 Flash</option></select></label>
+      <section class="iig-xv-director"><strong>🎬 ИИ-режиссёр · сценарий из ролевой</strong><small>Берёт последние сообщения только из открытого чата. Покажет сценарий для проверки; ничего не отправляет в Google до нажатия «Создать видео».</small><label>Контекст<select class="iig-xv-turns"><option value="2">Последние 2 сообщения</option><option value="4">Последние 4 сообщения</option><option value="6">Последние 6 сообщений</option></select></label><button type="button" class="iig-xv-from-chat">Взять сцену из ролевой</button><button type="button" class="iig-xv-restore">Вернуть описание картинки</button></section>
       <label class="iig-xv-prompt-wrap"><span class="iig-xv-prompt-title">✍️ Что должно произойти и что должно быть слышно</span><span class="iig-xv-prompt-help">Движение персонажей, камера, атмосфера, реплики и звуки — всё можно написать здесь.</span><textarea class="iig-xv-prompt" placeholder="Например: девушка медленно поднимает взгляд, волосы движутся от ветра, камера плавно приближается. Слышно тихий дождь…"></textarea></label>
       <label class="iig-xv-references" style="display:none">Дополнительные референсы Бо / Ханаби (до 4 файлов JPEG/PNG/WebP)<input class="iig-xv-reference-files" type="file" accept="image/jpeg,image/png,image/webp" multiple><small>Исходная картинка уже считается первым референсом. Дополнительные файлы используются только для Gemini Omni.</small></label>
       <div class="iig-xv-grid">
@@ -285,7 +301,10 @@ export function askXaiVideoOptions(initialPrompt = '') {
     const q = sel => wrap.querySelector(sel);
     const provider=q('.iig-xv-provider'), promptBox=q('.iig-xv-prompt'), model=q('.iig-xv-model'), duration=q('.iig-xv-duration'), resolution=q('.iig-xv-resolution'), audio=q('.iig-xv-audio-input'), cost=q('.iig-xv-cost'), refFiles=q('.iig-xv-reference-files'), refLabel=q('.iig-xv-references');
     let remembered={}; try { remembered=JSON.parse(localStorage.getItem('iig_video_options')||'{}'); } catch {}
-    promptBox.value=String(initialPrompt || localStorage.getItem('iig_video_prompt') || '');
+    const originalPrompt = String(initialPrompt || localStorage.getItem('iig_video_prompt') || '');
+    promptBox.value = originalPrompt;
+    q('.iig-xv-from-chat').onclick = () => { try { promptBox.value = getDirectorScene(Number(q('.iig-xv-turns').value)); q('.iig-xv-status').textContent = 'Сценарий подготовлен. Проверь реплики и действия перед платной генерацией.'; } catch (e) { q('.iig-xv-status').textContent = e.message; } };
+    q('.iig-xv-restore').onclick = () => { promptBox.value = originalPrompt; q('.iig-xv-status').textContent = 'Описание картинки восстановлено.'; };
     if (['veo', 'grok', 'omni'].includes(remembered.provider)) provider.value=remembered.provider;
     const fill=(el, items, selected)=>{ el.innerHTML=items.map(([v,l])=>`<option value="${v}">${l}</option>`).join(''); if([...el.options].some(o=>o.value===String(selected))) el.value=String(selected); };
     const rebuild=()=>{
@@ -341,7 +360,7 @@ export function askXaiVideoOptions(initialPrompt = '') {
         const reader=new FileReader(); reader.onload=()=>resolve(reader.result); reader.onerror=reject; reader.readAsDataURL(f);
       })));
       const value={provider:provider.value,prompt:promptBox.value.trim(),model:model.value,duration:Number(duration.value),resolution:resolution.value,generateAudio:audio.checked,aspectRatio:'9:16',referenceImages};
-      localStorage.setItem('iig_video_prompt',value.prompt); localStorage.setItem('iig_video_options',JSON.stringify(value)); finish(value);
+      localStorage.setItem('iig_video_prompt',value.prompt); localStorage.setItem('iig_video_options',JSON.stringify({...value, referenceImages: []})); finish(value);
     };
   });
 }
