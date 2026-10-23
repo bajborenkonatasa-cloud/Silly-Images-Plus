@@ -310,6 +310,8 @@ export function askXaiVideoOptions(initialPrompt = '') {
       <label class="iig-xv-prompt-wrap"><span class="iig-xv-prompt-title">✍️ Что должно произойти и что должно быть слышно</span><span class="iig-xv-prompt-help">Движение персонажей, камера, атмосфера, реплики и звуки — всё можно написать здесь.</span><textarea class="iig-xv-prompt" placeholder="Например: девушка медленно поднимает взгляд, волосы движутся от ветра, камера плавно приближается. Слышно тихий дождь…"></textarea></label>
       <section class="iig-xv-director iig-xv-cast"><strong>👥 Персонажи и NPC · до 4 человек</strong><small>Имена необязательны. Без портретов видео тоже создаётся. Если добавляешь портреты, укажи соответствующие имена по порядку.</small><div class="iig-xv-grid"><label>Персонаж 1<input class="iig-xv-cast-name" placeholder="Например, Ханаби"></label><label>Персонаж 2<input class="iig-xv-cast-name" placeholder="Например, Бо"></label><label>NPC 3<input class="iig-xv-cast-name" placeholder="Имя NPC"></label><label>NPC 4<input class="iig-xv-cast-name" placeholder="Имя NPC"></label></div></section>
       <section class="iig-xv-references" style="display:none"><strong>🖼️ Портреты — по одному на персонажа</strong><small>Введи имя и выбери портрет в соответствующей строке. Портрет запоминается в этом браузере и автоматически подставляется при следующей генерации.</small><div class="iig-xv-portrait-slots"></div><button type="button" class="iig-xv-clear-portraits">Очистить сохранённые портреты этих персонажей</button><small class="iig-xv-portrait-status"></small></section>
+      <label>Длина эпизода<select class="iig-xv-episode"><option value="1">Один клип (обычно 8–10 секунд)</option><option value="2">Два клипа (примерно 16–20 секунд)</option><option value="3">Три клипа (примерно 24–30 секунд)</option></select></label>
+      <small class="iig-xv-episode-note">Длинный эпизод = несколько отдельных платных генераций. Это не бесшовное продолжение: каждый фрагмент использует исходную картинку и тот же состав персонажей. Клипы сохраняются отдельно.</small>
       <div class="iig-xv-grid">
         <label>Модель<select class="iig-xv-model"></select></label>
         <label>Длительность<select class="iig-xv-duration"></select></label>
@@ -322,6 +324,7 @@ export function askXaiVideoOptions(initialPrompt = '') {
     document.body.appendChild(wrap);
     wrap.showModal();
     const q = sel => wrap.querySelector(sel);
+    const episode=q('.iig-xv-episode');
     const provider=q('.iig-xv-provider'), promptBox=q('.iig-xv-prompt'), model=q('.iig-xv-model'), duration=q('.iig-xv-duration'), resolution=q('.iig-xv-resolution'), audio=q('.iig-xv-audio-input'), cost=q('.iig-xv-cost'), refLabel=q('.iig-xv-references');
     let remembered={}; try { remembered=JSON.parse(localStorage.getItem('iig_video_options')||'{}'); } catch {}
     const savedCast = (()=>{try{return JSON.parse(localStorage.getItem('iig_video_cast')||'[]')}catch{return []}})();
@@ -401,6 +404,7 @@ export function askXaiVideoOptions(initialPrompt = '') {
     q('.iig-xv-cancel').onclick=()=>finish(null); wrap.addEventListener('click',e=>{if(e.target===wrap)finish(null)}); wrap.addEventListener('cancel',e=>{e.preventDefault();finish(null)});
     q('.iig-xv-go').onclick=async()=>{
       try {
+      if(Number(episode.value)>1 && !window.confirm(`Запустить ${episode.value} отдельные ПЛАТНЫЕ генерации? Каждый клип будет сохранён отдельно.`)) return;
       const castNames=getCast();
       const referenceImages=[];
       if(provider.value==='omni'){
@@ -418,7 +422,7 @@ export function askXaiVideoOptions(initialPrompt = '') {
       }
       const identityGuide=referenceImages.map((ref,i)=>`Reference portrait ${i+1} depicts ${ref.name}. Preserve the same face, hairstyle and distinctive traits; do not swap identities.`).join('\n');
       const finalPrompt=promptBox.value.trim() + (provider.value==='omni' && referenceImages.length && identityGuide ? '\n\nCHARACTER REFERENCE MAP:\n'+identityGuide : '');
-      const value={provider:provider.value,prompt:finalPrompt,model:model.value,duration:Number(duration.value),resolution:resolution.value,generateAudio:audio.checked,aspectRatio:'9:16',referenceImages:referenceImages.map(r=>r.data)};
+      const value={episodeClips:Number(episode.value),provider:provider.value,prompt:finalPrompt,model:model.value,duration:Number(duration.value),resolution:resolution.value,generateAudio:audio.checked,aspectRatio:'9:16',referenceImages:referenceImages.map(r=>r.data)};
       localStorage.setItem('iig_video_cast',JSON.stringify(castNames)); localStorage.setItem('iig_video_prompt',promptBox.value.trim()); localStorage.setItem('iig_video_options',JSON.stringify({...value, prompt:'', referenceImages: []})); finish(value);
       } catch(error) {
         console.error('[Director Studio] Ошибка подготовки видео:',error);
@@ -430,7 +434,22 @@ export function askXaiVideoOptions(initialPrompt = '') {
 export async function animateImageInteractive(imageSrc, onStatus = () => {}, initialPrompt = '') {
   const options = await askXaiVideoOptions(initialPrompt);
   if (!options) return null;
-  return options.provider === 'omni' ? generateOmniVideoFromImage(imageSrc, options, onStatus) : options.provider === 'veo' ? generateVeoVideoFromImage(imageSrc, options, onStatus) : generateXaiVideoFromImage(imageSrc, options, onStatus);
+  const generate = options.provider === 'omni' ? generateOmniVideoFromImage : options.provider === 'veo' ? generateVeoVideoFromImage : generateXaiVideoFromImage;
+  const count = Math.max(1, Math.min(3, Number(options.episodeClips) || 1));
+  if (count === 1) return generate(imageSrc, options, onStatus);
+  const clips = [];
+  // No hidden extra calls: exactly count sequential, independently billed clips.
+  for (let i = 0; i < count; i++) {
+    const direction = `\n\nEPISODE PART ${i + 1} OF ${count}: ${i === 0 ? 'Show the beginning of the action.' : i === count - 1 ? 'Show the closing beat of the same scene.' : 'Show the middle beat of the same scene.'} Keep the same cast, wardrobe and location. Do not repeat the same actions or dialogue from other parts. No new characters.`;
+    try {
+      onStatus(`Эпизод ${i + 1}/${count}: генерация…`);
+      clips.push(await generate(imageSrc, {...options, prompt: options.prompt + direction}, onStatus));
+    } catch (error) {
+      if (clips.length) return {...clips[0], clips, incomplete: true, failure: `Часть ${i + 1}: ${error.message}`};
+      throw error;
+    }
+  }
+  return {...clips[0], clips};
 }
 
 

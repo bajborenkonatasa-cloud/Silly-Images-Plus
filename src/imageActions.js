@@ -133,17 +133,21 @@ function buildActions(img, isError) {
             button.disabled = true;
             const result = await animateImageInteractive(img.src, (status) => { button.title = status; });
             if (!result) return;
-            // Keep the generated video visible even if permanent storage fails.
-            showVideoPreview(img, result.url);
-            try {
-                const savedUrl = await persistGeneratedVideo(result.url, img);
-                await attachVideoToMessage(img, savedUrl);
-                if (!savedUrl.startsWith('iig-idb:')) showVideoPreview(img, savedUrl);
-                toastr.success('Видео сохранено. Оно восстановится при повторном входе.', 'Director Studio');
-            } catch (saveError) {
-                iigLog('ERROR', 'Video persistence failed:', saveError);
-                toastr.warning('Видео готово, но сохранить его не удалось. Скачай MP4 сейчас: ' + saveError.message, 'Director Studio', { timeOut: 12000 });
+            const clips = Array.isArray(result.clips) ? result.clips : [result];
+            const playable = [];
+            for (let i = 0; i < clips.length; i++) {
+                const clip = clips[i];
+                playable.push(clip.url);
+                try {
+                    const savedUrl = await persistGeneratedVideo(clip.url, img, i);
+                    await attachVideoToMessage(img, savedUrl, i);
+                } catch (saveError) {
+                    iigLog('ERROR', 'Video persistence failed:', saveError);
+                    toastr.warning(`Часть ${i + 1} не сохранена. Скачай MP4 сейчас: ${saveError.message}`, 'Director Studio', {timeOut: 12000});
+                }
             }
+            showVideoPreview(img, playable);
+            if (result.incomplete) toastr.warning('Не все части созданы: ' + result.failure, 'Director Studio', {timeOut: 12000});
         } catch (error) {
             iigLog('ERROR', 'xAI video failed:', error);
             toastr.error(error?.message || 'Не удалось создать видео', 'Grok Video');
@@ -247,13 +251,13 @@ function directorMediaKey(img) {
     if (!Number.isInteger(messageId) || messageId < 0 || imageIndex < 0) throw new Error('Не удалось определить картинку и сообщение.');
     return `${chatId}::${messageId}::${imageIndex}`;
 }
-async function persistGeneratedVideo(url, img) {
+async function persistGeneratedVideo(url, img, partIndex = 0) {
     const response = await fetch(url, { cache: 'no-store' });
     if (!response.ok) throw new Error(`Не удалось прочитать MP4 (HTTP ${response.status})`);
     const blob = await response.blob();
     if (!blob.size) throw new Error('Пустой видеофайл.');
     // Save locally FIRST, before attempting server upload. No silent loss on server error.
-    const key = directorMediaKey(img);
+    const key = `${directorMediaKey(img)}::part${partIndex}`;
     await videoDb('put', key, blob);
     try {
         const bytes = new Uint8Array(await blob.arrayBuffer());
@@ -274,7 +278,7 @@ async function persistGeneratedVideo(url, img) {
         return `iig-idb:${key}`;
     }
 }
-async function attachVideoToMessage(img, url) {
+async function attachVideoToMessage(img, url, partIndex = 0) {
     const el = img.closest('.mes');
     const id = Number(el?.getAttribute('mesid'));
     const context = SillyTavern.getContext();
@@ -282,7 +286,10 @@ async function attachVideoToMessage(img, url) {
     const msg = context.chat[id];
     msg.extra ??= {};
     msg.extra.iigDirectorVideos ??= [];
-    if (!msg.extra.iigDirectorVideos.includes(url)) msg.extra.iigDirectorVideos.push(url);
+    const key = directorMediaKey(img);
+    const entry = {imageKey:key, partIndex, url};
+    msg.extra.iigDirectorVideos = msg.extra.iigDirectorVideos.filter(v => !(v && typeof v === 'object' && v.imageKey === key && v.partIndex === partIndex));
+    msg.extra.iigDirectorVideos.push(entry);
     await context.saveChat();
 }
 const restoringVideos = new WeakSet();
@@ -293,34 +300,51 @@ async function restoreSavedVideos(img) {
     try {
         const id = Number(img.closest('.mes')?.getAttribute('mesid'));
         const videos = SillyTavern.getContext()?.chat?.[id]?.extra?.iigDirectorVideos;
-        const saved = Array.isArray(videos) ? videos[videos.length - 1] : null;
-        if (saved && !saved.startsWith('iig-idb:')) { showVideoPreview(img, saved); return; }
-        const key = saved?.startsWith('iig-idb:') ? saved.slice('iig-idb:'.length) : directorMediaKey(img);
-        const blob = await videoDb('get', key);
-        if (blob instanceof Blob && img.isConnected && !host.querySelector(':scope > .iig-xai-video-preview')) {
-            showVideoPreview(img, URL.createObjectURL(blob));
+        const base = directorMediaKey(img);
+        const entries = Array.isArray(videos) ? videos.filter(v => v && typeof v === 'object' && v.imageKey === base).sort((a,b)=>a.partIndex-b.partIndex) : [];
+        const urls = [];
+        for (const entry of entries) {
+            if (entry.url?.startsWith('iig-idb:')) {
+                const blob = await videoDb('get', entry.url.slice(8));
+                if (blob instanceof Blob) urls.push(URL.createObjectURL(blob));
+            } else if (entry.url) urls.push(entry.url);
         }
+        if (!urls.length) {
+            const legacy = Array.isArray(videos) ? videos.findLast(v => typeof v === 'string') : null;
+            if (legacy && !legacy.startsWith('iig-idb:')) urls.push(legacy);
+            else {
+                const blob = await videoDb('get', legacy?.startsWith('iig-idb:') ? legacy.slice(8) : base);
+                if (blob instanceof Blob) urls.push(URL.createObjectURL(blob));
+            }
+        }
+        if (urls.length && img.isConnected) showVideoPreview(img, urls);
     } catch (error) { iigLog('WARN', 'Video restore skipped:', error); }
     finally { restoringVideos.delete(img); }
 }
 
-function showVideoPreview(img, url) {
+function showVideoPreview(img, urls) {
     const host = img.closest('.iig-img-host') || img.parentElement;
     if (!host) return;
     host.querySelector(':scope > .iig-xai-video-preview')?.remove();
     const box = document.createElement('div');
     box.className = 'iig-xai-video-preview';
     box.style.cssText = 'margin-top:8px;display:grid;gap:6px';
-    const video = document.createElement('video');
-    video.src = url; video.controls = true; video.playsInline = true; video.preload = 'metadata';
-    video.style.cssText = 'width:100%;max-height:75vh;border-radius:10px';
-    const download = document.createElement('a');
-    download.href = url; download.download = 'silly-director-video.mp4'; download.textContent = '⬇️ Скачать MP4';
-    download.style.cssText = 'display:inline-block;padding:6px';
+    const parts = Array.isArray(urls) ? urls : [urls];
+    parts.forEach((url, i) => {
+        const heading = document.createElement('small'); heading.textContent = `Часть ${i + 1} из ${parts.length}`;
+        const video = document.createElement('video');
+        video.src = url; video.controls = true; video.playsInline = true; video.preload = 'metadata';
+        video.style.cssText = 'width:100%;max-height:75vh;border-radius:10px';
+        const download = document.createElement('a');
+        download.href = url; download.download = `silly-director-part-${i + 1}.mp4`;
+        download.textContent = `⬇️ Скачать часть ${i + 1}`;
+        download.style.cssText = 'display:inline-block;padding:6px';
+        box.append(heading, video, download);
+    });
     const back = document.createElement('button');
     back.type = 'button'; back.textContent = '🖼️ Скрыть видео';
     back.onclick = (e) => { e.preventDefault(); e.stopPropagation(); box.remove(); };
-    box.append(video, download, back);
+    box.append(back);
     host.appendChild(box);
-    video.play().catch(() => {});
+    box.querySelector('video')?.play().catch(() => {});
 }
