@@ -108,6 +108,7 @@ function buildActions(img, isError) {
         ? `<button class="iig-img-action iig-img-retry" type="button" title="${t`Retry`}" aria-label="${t`Retry`}"><i class="fa-solid fa-rotate-right"></i></button>`
         : `<button class="iig-img-action iig-img-download" type="button" title="${t`Download`}" aria-label="${t`Download`}"><i class="fa-solid fa-download"></i></button>`
           + `<button class="iig-img-action iig-img-regen" type="button" title="${t`Regenerate this image`}" aria-label="${t`Regenerate this image`}"><i class="fa-solid fa-rotate-right"></i></button>`
+          + `<button class="iig-img-action iig-img-library" type="button" title="Мои видео" aria-label="Мои видео">📁</button>`
           + `<button class="iig-img-action iig-img-animate" type="button" title="Оживить через Grok" aria-label="Оживить через Grok">🎬</button>`;
 
     const stopAll = (e) => { e.stopPropagation(); e.preventDefault(); };
@@ -126,6 +127,7 @@ function buildActions(img, isError) {
         stopAll(e);
         await regenerateOne(img);
     });
+    actions.querySelector('.iig-img-library')?.addEventListener('click', (e) => { stopAll(e); showDirectorLibrary().catch(err => toastr.error(err.message, 'Мои видео')); });
     actions.querySelector('.iig-img-animate')?.addEventListener('click', async (e) => {
         stopAll(e);
         const button = e.currentTarget;
@@ -140,7 +142,7 @@ function buildActions(img, isError) {
                 playable.push(clip.url);
                 try {
                     const savedUrl = await persistGeneratedVideo(clip.url, img, i);
-                    await attachVideoToMessage(img, savedUrl, i);
+                    try { await attachVideoToMessage(img, savedUrl, i); } catch (metadataError) { iigLog('WARN', 'Chat metadata save failed; video is still in My Videos:', metadataError); toastr.info('MP4 сохранён в «Мои видео», но привязка к сообщению не записалась.', 'Director Studio'); }
                 } catch (saveError) {
                     iigLog('ERROR', 'Video persistence failed:', saveError);
                     toastr.warning(`Часть ${i + 1} не сохранена. Скачай MP4 сейчас: ${saveError.message}`, 'Director Studio', {timeOut: 12000});
@@ -224,6 +226,7 @@ function openDirectorDb() {
         req.onupgradeneeded = () => {
             const db = req.result;
             if (!db.objectStoreNames.contains('videos')) db.createObjectStore('videos');
+            if (!db.objectStoreNames.contains('records')) db.createObjectStore('records');
         };
         req.onsuccess = () => resolve(req.result);
         req.onerror = () => reject(req.error);
@@ -241,6 +244,58 @@ async function videoDb(action, key, value) {
         });
     } finally { db.close(); }
 }
+async function directorRecord(action, key, value) {
+    const db = await openDirectorDb();
+    try {
+        return await new Promise((resolve, reject) => {
+            const tx = db.transaction('records', action === 'get' || action === 'all' ? 'readonly' : 'readwrite');
+            const store = tx.objectStore('records');
+            const req = action === 'get' ? store.get(key) : action === 'all' ? store.getAll() : store.put(value, key);
+            req.onsuccess = () => resolve(req.result);
+            req.onerror = () => reject(req.error);
+            tx.onerror = () => reject(tx.error);
+        });
+    } finally { db.close(); }
+}
+function imageFingerprint(img) {
+    // A generated image URL normally persists in saved chat HTML even if message indices shift.
+    const source = img.getAttribute('src') || img.src || '';
+    let h = 2166136261;
+    for (let i = 0; i < source.length; i++) h = Math.imul(h ^ source.charCodeAt(i), 16777619);
+    return (h >>> 0).toString(16);
+}
+function currentDirectorChatId() {
+    const c = SillyTavern.getContext();
+    return String(c.getCurrentChatId?.() || c.chatId || c.chatMetadata?.main_chat || 'default');
+}
+function directorStableKey(img, partIndex) {
+    return `${currentDirectorChatId()}::image-${imageFingerprint(img)}::part${partIndex}`;
+}
+async function directorLibrary() {
+    const records = await directorRecord('all');
+    return (records || []).filter(x => x && x.blobKey).sort((a,b) => (b.createdAt || 0)-(a.createdAt || 0));
+}
+async function showDirectorLibrary() {
+    const records = await directorLibrary();
+    const existing = document.getElementById('iig-director-library'); existing?.remove();
+    const panel = document.createElement('div'); panel.id = 'iig-director-library';
+    panel.style.cssText = 'position:fixed;z-index:100000;inset:6% 4%;overflow:auto;background:var(--SmartThemeBlurTintColor,#24232c);color:var(--SmartThemeBodyColor,#fff);border:1px solid #888;border-radius:12px;padding:16px;box-shadow:0 0 0 100vmax #0008';
+    const heading = document.createElement('h3'); heading.textContent = `🎬 Мои видео (${records.length})`;
+    const close = document.createElement('button'); close.textContent = '✕ Закрыть'; close.onclick = () => panel.remove();
+    panel.append(heading,close);
+    if (!records.length) { const note=document.createElement('p'); note.textContent='В библиотеке пока нет сохранённых роликов. Старые временные blob-ссылки восстановить нельзя.';panel.append(note); }
+    for (const rec of records) {
+        const blob = await videoDb('get',rec.blobKey).catch(()=>null);
+        if (!(blob instanceof Blob)) continue;
+        const url = URL.createObjectURL(blob);
+        const item = document.createElement('div'); item.style.cssText='margin:12px 0;padding:10px;border:1px solid #777;border-radius:8px';
+        const title = document.createElement('div'); title.textContent = `${new Date(rec.createdAt).toLocaleString()} · Часть ${rec.partIndex+1} · ${(blob.size/1048576).toFixed(1)} МБ`;
+        const video = document.createElement('video');video.src=url;video.controls=true;video.playsInline=true;video.style.cssText='width:100%;max-height:40vh';
+        const a=document.createElement('a');a.href=url;a.download=`director-${rec.createdAt}-part-${rec.partIndex+1}.mp4`;a.textContent='⬇️ Скачать MP4';
+        item.append(title,video,a);panel.append(item);
+    }
+    document.body.append(panel);
+}
 function directorMediaKey(img) {
     const context = SillyTavern.getContext();
     const msg = img.closest('.mes');
@@ -257,8 +312,9 @@ async function persistGeneratedVideo(url, img, partIndex = 0) {
     const blob = await response.blob();
     if (!blob.size) throw new Error('Пустой видеофайл.');
     // Save locally FIRST, before attempting server upload. No silent loss on server error.
-    const key = `${directorMediaKey(img)}::part${partIndex}`;
+    const key = directorStableKey(img, partIndex);
     await videoDb('put', key, blob);
+    await directorRecord('put', key, { blobKey: key, chatId: currentDirectorChatId(), fingerprint: imageFingerprint(img), partIndex, createdAt: Date.now() });
     try {
         const bytes = new Uint8Array(await blob.arrayBuffer());
         const chunks = [];
@@ -314,6 +370,15 @@ async function restoreSavedVideos(img) {
             if (legacy && !legacy.startsWith('iig-idb:')) urls.push(legacy);
             else {
                 const blob = await videoDb('get', legacy?.startsWith('iig-idb:') ? legacy.slice(8) : base);
+                if (blob instanceof Blob) urls.push(URL.createObjectURL(blob));
+            }
+        }
+        // Restore directly from the persistent library, even if saveChat failed or
+        // message ids shifted. This is independent of the message metadata.
+        if (!urls.length) {
+            const records = (await directorLibrary()).filter(r => r.chatId === currentDirectorChatId() && r.fingerprint === imageFingerprint(img)).sort((a,b)=>a.partIndex-b.partIndex);
+            for (const rec of records) {
+                const blob = await videoDb('get', rec.blobKey);
                 if (blob instanceof Blob) urls.push(URL.createObjectURL(blob));
             }
         }
