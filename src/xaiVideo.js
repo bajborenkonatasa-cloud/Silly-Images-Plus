@@ -273,7 +273,7 @@ function normalizePortraitName(name){return String(name||'').trim().toLocaleLowe
 function directorScope() {
   const c = globalThis.SillyTavern?.getContext?.() || {};
   const chat = String(c.getCurrentChatId?.() || c.chatId || 'unsaved');
-  const char = String(c.characters?.[c.characterId]?.avatar || c.characterId ?? 'none');
+  const char = String(c.characters?.[c.characterId]?.avatar ?? c.characterId ?? 'none');
   const user = String(c.name1 || 'user');
   return encodeURIComponent(`${chat}|${char}|${user}`).slice(0,400);
 }
