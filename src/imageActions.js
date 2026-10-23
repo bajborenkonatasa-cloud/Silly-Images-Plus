@@ -113,6 +113,7 @@ function buildActions(img, isError) {
 
     const stopAll = (e) => { e.stopPropagation(); e.preventDefault(); };
     actions.addEventListener('pointerdown', (e) => e.stopPropagation());
+    actions.addEventListener('touchstart', (e) => e.stopPropagation(), {passive:true});
     actions.addEventListener('click', (e) => e.stopPropagation());
 
     actions.querySelector('.iig-img-download')?.addEventListener('click', async (e) => {
@@ -131,6 +132,7 @@ function buildActions(img, isError) {
     actions.querySelector('.iig-img-animate')?.addEventListener('click', async (e) => {
         stopAll(e);
         const button = e.currentTarget;
+        if (!button || button.disabled) return;
         try {
             button.disabled = true;
             const result = await animateImageInteractive(img.src, (status) => { button.title = status; });
@@ -152,7 +154,7 @@ function buildActions(img, isError) {
             if (result.incomplete) toastr.warning('Не все части созданы: ' + result.failure, 'Director Studio', {timeOut: 12000});
         } catch (error) {
             iigLog('ERROR', 'xAI video failed:', error);
-            toastr.error(error?.message || 'Не удалось создать видео', 'Grok Video');
+            toastr.error(error?.message || 'Не удалось открыть режиссёр или создать видео', 'Director Studio', {timeOut:12000});
         } finally {
             button.disabled = false;
             button.title = 'Оживить через Grok';

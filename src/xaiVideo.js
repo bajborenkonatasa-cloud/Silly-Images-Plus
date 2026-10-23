@@ -273,7 +273,7 @@ function normalizePortraitName(name){return String(name||'').trim().toLocaleLowe
 function directorScope() {
   const c = globalThis.SillyTavern?.getContext?.() || {};
   const chat = String(c.getCurrentChatId?.() || c.chatId || 'unsaved');
-  const char = String(c.characters?.[c.characterId]?.avatar || c.characterId ?? 'none');
+  const char = String(c.characters?.[c.characterId]?.avatar || c.characterId || 'none');
   const user = String(c.name1 || 'user');
   return encodeURIComponent(`${chat}|${char}|${user}`).slice(0,400);
 }
@@ -348,7 +348,8 @@ export function askXaiVideoOptions(initialPrompt = '') {
       <section class="iig-xv-director iig-xv-cast"><strong>👥 Персонажи и NPC · до 4 человек</strong><small>Первые два участника берутся из активной персоны и карточки персонажа. NPC добавляй вручную. Для другого чата имена не переносятся.</small><div class="iig-xv-grid"><label>{{user}} · персона 1<input class="iig-xv-cast-name" placeholder="Например, Ханаби"></label><label>{{char}} · персонаж 2<input class="iig-xv-cast-name" placeholder="Например, Бо"></label><label>NPC 3<input class="iig-xv-cast-name" placeholder="Имя NPC"></label><label>NPC 4<input class="iig-xv-cast-name" placeholder="Имя NPC"></label></div></section>
       <section class="iig-xv-references" style="display:none"><label class="iig-xv-audio"><input type="checkbox" class="iig-xv-auto-library" checked> Использовать портреты и описания из библиотеки {{user}} / {{char}} (если доступны)</label><strong>🖼️ Портреты — по одному на персонажа</strong><small>Ручные портреты имеют приоритет. Для NPC используй слоты 3 и 4. Аватары и описания из библиотеки подставляются только при включённой галочке.</small><div class="iig-xv-portrait-slots"></div><button type="button" class="iig-xv-clear-portraits">Очистить сохранённые портреты этих персонажей</button><small class="iig-xv-portrait-status"></small></section>
       <label>Длина эпизода<select class="iig-xv-episode"><option value="1">Один клип (обычно 8–10 секунд)</option><option value="2">Два клипа (примерно 16–20 секунд)</option><option value="3">Три клипа (примерно 24–30 секунд)</option></select></label>
-      <small class="iig-xv-episode-note">Длинный эпизод = несколько отдельных платных генераций. Это не бесшовное продолжение: каждый фрагмент использует исходную картинку и тот же состав персонажей. Клипы сохраняются отдельно.</small>
+      <small class="iig-xv-episode-note">Для длинной сцены напиши отдельное действие и реплику для каждой части. Следующая часть попробует продолжить последний кадр предыдущей. Если извлечь кадр не получится, будет использована исходная картинка. Каждый клип оплачивается отдельно.</small>
+      <section class="iig-xv-director iig-xv-storyboard" style="display:none"><strong>🎞️ Раскадровка длинной сцены</strong><small>Распредели события по клипам, чтобы модель не повторяла начало. Реплики пиши в нужном языке. Можно оставить поле пустым — тогда используется общее описание.</small><div class="iig-xv-parts"></div><label class="iig-xv-audio"><input type="checkbox" class="iig-xv-continuity" checked> Продолжать с последнего кадра предыдущего клипа (экспериментально)</label></section>
       <div class="iig-xv-grid">
         <label>Модель<select class="iig-xv-model"></select></label>
         <label>Длительность<select class="iig-xv-duration"></select></label>
@@ -362,6 +363,25 @@ export function askXaiVideoOptions(initialPrompt = '') {
     wrap.showModal();
     const q = sel => wrap.querySelector(sel);
     const episode=q('.iig-xv-episode');
+    const storyboard=q('.iig-xv-storyboard');
+    const parts=q('.iig-xv-parts');
+    const renderStoryboard=()=>{
+      const count=Math.max(1,Math.min(3,Number(episode.value)||1));
+      storyboard.style.display=count>1?'block':'none';
+      const old=[...parts.querySelectorAll('textarea')].map(x=>x.value);
+      parts.replaceChildren();
+      for(let i=0;i<count;i++){
+        const label=document.createElement('label');
+        label.textContent=`Клип ${i+1} из ${count}`;
+        const area=document.createElement('textarea');
+        area.className='iig-xv-part-prompt';
+        area.placeholder=i===0?'Начало: действия и короткие реплики':i===count-1?'Завершение: действия и короткие реплики':'Продолжение: действия и короткие реплики';
+        area.value=old[i]||'';
+        label.append(area);parts.append(label);
+      }
+    };
+    episode.addEventListener('change',renderStoryboard);
+    renderStoryboard();
     const provider=q('.iig-xv-provider'), promptBox=q('.iig-xv-prompt'), model=q('.iig-xv-model'), duration=q('.iig-xv-duration'), resolution=q('.iig-xv-resolution'), audio=q('.iig-xv-audio-input'), cost=q('.iig-xv-cost'), refLabel=q('.iig-xv-references');
     let remembered={}; try { remembered=JSON.parse(localStorage.getItem('iig_video_options')||'{}'); } catch {}
     const savedCast = (()=>{try{return JSON.parse(localStorage.getItem(directorSetting('cast'))||'null') || currentCast()}catch{return currentCast()}})();
@@ -472,7 +492,7 @@ export function askXaiVideoOptions(initialPrompt = '') {
       }
       const identityGuide=referenceImages.map((ref,i)=>`Reference portrait ${i+1} depicts ${ref.name}. ${String(ref.description||'').slice(0,800)} Preserve the same face, hairstyle and distinctive traits; do not swap identities.`).join('\n');
       const finalPrompt=promptBox.value.trim() + (provider.value==='omni' && referenceImages.length && identityGuide ? '\n\nCHARACTER REFERENCE MAP:\n'+identityGuide : '');
-      const value={episodeClips:Number(episode.value),provider:provider.value,prompt:finalPrompt,model:model.value,duration:Number(duration.value),resolution:resolution.value,generateAudio:audio.checked,aspectRatio:'9:16',referenceImages:referenceImages.map(r=>r.data)};
+      const value={episodeClips:Number(episode.value),partPrompts:[...parts.querySelectorAll('textarea')].map(x=>x.value.trim()),continueFromLastFrame:q('.iig-xv-continuity').checked,provider:provider.value,prompt:finalPrompt,model:model.value,duration:Number(duration.value),resolution:resolution.value,generateAudio:audio.checked,aspectRatio:'9:16',referenceImages:referenceImages.map(r=>r.data)};
       localStorage.setItem(directorSetting('cast'),JSON.stringify(castNames)); localStorage.setItem(directorSetting('prompt'),promptBox.value.trim()); localStorage.setItem('iig_video_options',JSON.stringify({...value, prompt:'', referenceImages: []})); finish(value);
       } catch(error) {
         console.error('[Director Studio] Ошибка подготовки видео:',error);
@@ -481,6 +501,36 @@ export function askXaiVideoOptions(initialPrompt = '') {
     };
   });
 }
+// Extract a real last frame locally in the browser; no additional paid API call.
+// The blob URL is generated by the provider in this same page.
+async function videoLastFrame(videoUrl) {
+  return await new Promise((resolve,reject)=>{
+    const video=document.createElement('video');
+    video.preload='auto'; video.muted=true; video.playsInline=true;
+    let done=false;
+    const timer=setTimeout(()=>fail(new Error('Тайм-аут извлечения кадра')),18000);
+    const cleanup=()=>{clearTimeout(timer);video.removeAttribute('src');video.load();};
+    const fail=e=>{if(done)return;done=true;cleanup();reject(e);};
+    video.onerror=()=>fail(new Error('Не удалось открыть MP4 для продолжения'));
+    video.onloadedmetadata=()=>{
+      if(!Number.isFinite(video.duration)||video.duration<=0){fail(new Error('Нет длительности MP4'));return;}
+      video.currentTime=Math.max(0,video.duration-0.12);
+    };
+    video.onseeked=()=>{
+      if(done)return;
+      try{
+        const canvas=document.createElement('canvas');
+        canvas.width=video.videoWidth;canvas.height=video.videoHeight;
+        if(!canvas.width||!canvas.height)throw new Error('Кадр пуст');
+        canvas.getContext('2d').drawImage(video,0,0);
+        const frame=canvas.toDataURL('image/jpeg',0.88);
+        done=true;cleanup();resolve(frame);
+      }catch(e){fail(e)}
+    };
+    video.src=videoUrl;
+  });
+}
+
 export async function animateImageInteractive(imageSrc, onStatus = () => {}, initialPrompt = '') {
   const options = await askXaiVideoOptions(initialPrompt);
   if (!options) return null;
@@ -488,18 +538,24 @@ export async function animateImageInteractive(imageSrc, onStatus = () => {}, ini
   const count = Math.max(1, Math.min(3, Number(options.episodeClips) || 1));
   if (count === 1) return generate(imageSrc, options, onStatus);
   const clips = [];
-  // No hidden extra calls: exactly count sequential, independently billed clips.
+  let source = imageSrc;
   for (let i = 0; i < count; i++) {
-    const direction = `\n\nEPISODE PART ${i + 1} OF ${count}: ${i === 0 ? 'Show the beginning of the action.' : i === count - 1 ? 'Show the closing beat of the same scene.' : 'Show the middle beat of the same scene.'} Keep the same cast, wardrobe and location. Do not repeat the same actions or dialogue from other parts. No new characters.`;
+    const part = String(options.partPrompts?.[i] || '').trim();
+    const direction = `\n\nSTORYBOARD CLIP ${i + 1}/${count}. ${part ? `THIS CLIP ONLY: ${part}` : i === 0 ? 'Show the opening beat of the scene.' : i === count-1 ? 'Show the final beat of the scene.' : 'Show the middle beat of the scene.'} Do not repeat completed dialogue or actions. Preserve characters, outfits and setting. No subtitles or text overlays.`;
     try {
-      onStatus(`Эпизод ${i + 1}/${count}: генерация…`);
-      clips.push(await generate(imageSrc, {...options, prompt: options.prompt + direction}, onStatus));
+      onStatus(`Клип ${i + 1}/${count}: платная генерация…`);
+      const clip=await generate(source,{...options,prompt:options.prompt+direction},onStatus);
+      clips.push(clip);
+      if(i<count-1 && options.continueFromLastFrame){
+        try { onStatus(`Клип ${i+1}: извлекаю последний кадр…`);source=await videoLastFrame(clip.url); }
+        catch(err){ iigLog('WARN','Last frame unavailable; reusing original scene',err);source=imageSrc;onStatus('Последний кадр недоступен — следующая часть начнётся с исходной картинки.'); }
+      }
     } catch (error) {
-      if (clips.length) return {...clips[0], clips, incomplete: true, failure: `Часть ${i + 1}: ${error.message}`};
+      if (clips.length) return {...clips[0], clips, incomplete:true, failure:`Часть ${i+1}: ${error.message}`};
       throw error;
     }
   }
-  return {...clips[0], clips};
+  return {...clips[0],clips};
 }
 
 
