@@ -276,13 +276,21 @@ async function directorLibrary() {
     return (records || []).filter(x => x && x.blobKey).sort((a,b) => (b.createdAt || 0)-(a.createdAt || 0));
 }
 async function showDirectorLibrary() {
-    const records = await directorLibrary();
+    const records = (await directorLibrary()).filter(r => r.chatId === currentDirectorChatId()).sort((a,b)=>(a.messageId ?? 999999)-(b.messageId ?? 999999) || (a.createdAt||0)-(b.createdAt||0));
     const existing = document.getElementById('iig-director-library'); existing?.remove();
     const panel = document.createElement('div'); panel.id = 'iig-director-library';
     panel.style.cssText = 'position:fixed;z-index:100000;inset:6% 4%;overflow:auto;background:var(--SmartThemeBlurTintColor,#24232c);color:var(--SmartThemeBodyColor,#fff);border:1px solid #888;border-radius:12px;padding:16px;box-shadow:0 0 0 100vmax #0008';
-    const heading = document.createElement('h3'); heading.textContent = `🎬 Мои видео (${records.length})`;
+    const heading = document.createElement('h3'); heading.textContent = `🎬 Видео текущего чата (${records.length})`;
     const close = document.createElement('button'); close.textContent = '✕ Закрыть'; close.onclick = () => panel.remove();
     panel.append(heading,close);
+    // In-session playlist: sequential playback of selected episodes without a paid API call.
+    // This is NOT an MP4 merger. Each clip remains independently downloadable.
+    const playlist = document.createElement('button');
+    playlist.textContent='▶️ Смотреть сцены подряд';
+    playlist.type='button';
+    panel.append(playlist);
+    const playlistVideos=[];
+    playlist.onclick=()=>{ if(!playlistVideos.length)return; playlistVideos.forEach(v=>{v.pause();v.currentTime=0}); let i=0; const play=()=>{if(i<playlistVideos.length)playlistVideos[i++].play().catch(()=>{});}; playlistVideos.forEach((v,j)=>{v.onended=()=>{if(j===i-1)play();};}); play(); };
     if (!records.length) { const note=document.createElement('p'); note.textContent='В библиотеке пока нет сохранённых роликов. Старые временные blob-ссылки восстановить нельзя.';panel.append(note); }
     for (const rec of records) {
         const blob = await videoDb('get',rec.blobKey).catch(()=>null);
@@ -292,7 +300,7 @@ async function showDirectorLibrary() {
         const title = document.createElement('div'); title.textContent = `${new Date(rec.createdAt).toLocaleString()} · Часть ${rec.partIndex+1} · ${(blob.size/1048576).toFixed(1)} МБ`;
         const video = document.createElement('video');video.src=url;video.controls=true;video.playsInline=true;video.style.cssText='width:100%;max-height:40vh';
         const a=document.createElement('a');a.href=url;a.download=`director-${rec.createdAt}-part-${rec.partIndex+1}.mp4`;a.textContent='⬇️ Скачать MP4';
-        item.append(title,video,a);panel.append(item);
+        playlistVideos.push(video);item.append(title,video,a);panel.append(item);
     }
     document.body.append(panel);
 }
@@ -314,7 +322,7 @@ async function persistGeneratedVideo(url, img, partIndex = 0) {
     // Save locally FIRST, before attempting server upload. No silent loss on server error.
     const key = directorStableKey(img, partIndex);
     await videoDb('put', key, blob);
-    await directorRecord('put', key, { blobKey: key, chatId: currentDirectorChatId(), fingerprint: imageFingerprint(img), partIndex, createdAt: Date.now() });
+    await directorRecord('put', key, { blobKey: key, chatId: currentDirectorChatId(), fingerprint: imageFingerprint(img), partIndex, messageId: Number(img.closest('.mes')?.getAttribute('mesid')) || 0, createdAt: Date.now() });
     try {
         const bytes = new Uint8Array(await blob.arrayBuffer());
         const chunks = [];

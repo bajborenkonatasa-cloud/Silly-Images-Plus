@@ -1,4 +1,5 @@
 import { getSettings, iigLog } from './settings.js';
+import { getCurrentCharacterReferenceKey, getCurrentUserReferenceKey, getCharacterLibraryEntry, getCharacterLibraryDescription, characterAvatarUrl, userAvatarUrl, loadPersonasModule } from './references.js';
 
 const VIDEO_MODELS = {
   'grok-imagine-video': { label: 'Grok Video · экономный', rates: { '480p': 0.05, '720p': 0.07 }, imageInput: 0.002 },
@@ -268,6 +269,42 @@ async function portraitStore(action,key,value){
 function portraitFileData(file){return new Promise((resolve,reject)=>{const r=new FileReader();r.onload=()=>resolve(r.result);r.onerror=()=>reject(new Error('Ошибка чтения портрета'));r.readAsDataURL(file)})}
 function normalizePortraitName(name){return String(name||'').trim().toLocaleLowerCase().slice(0,100)}
 
+// Scope director drafts to a chat AND its selected persona/character. Never reuse another story's cast.
+function directorScope() {
+  const c = globalThis.SillyTavern?.getContext?.() || {};
+  const chat = String(c.getCurrentChatId?.() || c.chatId || 'unsaved');
+  const char = String(c.characters?.[c.characterId]?.avatar || c.characterId ?? 'none');
+  const user = String(c.name1 || 'user');
+  return encodeURIComponent(`${chat}|${char}|${user}`).slice(0,400);
+}
+function directorSetting(key) { return `iig_director_v5_${key}_${directorScope()}`; }
+function currentCast() {
+  const c = globalThis.SillyTavern?.getContext?.() || {};
+  return [String(c.name1 || ''), String(c.characters?.[c.characterId]?.name || c.name2 || ''), '', ''];
+}
+async function directorLibraryReferences() {
+  const c = globalThis.SillyTavern?.getContext?.() || {};
+  const settings = getSettings();
+  const char = c.characters?.[c.characterId];
+  const out = [];
+  let personaAvatar = '';
+  try { personaAvatar = String((await loadPersonasModule()).user_avatar || ''); } catch {}
+  const userKey = await getCurrentUserReferenceKey(settings);
+  const userEntry = getCharacterLibraryEntry('user', userKey, settings, {create:false});
+  const charKey = getCurrentCharacterReferenceKey();
+  const charEntry = getCharacterLibraryEntry('char', charKey, settings, {create:false});
+  for (const [name, entry, avatar, kind, key] of [
+    [c.name1, userEntry, personaAvatar ? userAvatarUrl(personaAvatar) : '', 'user', userKey],
+    [char?.name || c.name2, charEntry, char ? characterAvatarUrl(char) : '', 'char', charKey],
+  ]) {
+    if (!name) continue;
+    const image = entry?.primary?.enabled !== false && entry?.primary?.imagePath ? entry.primary.imagePath : avatar;
+    const description = getCharacterLibraryDescription(kind, key, settings);
+    out.push({name:String(name), image, description});
+  }
+  return out;
+}
+
 // Local, zero-cost director: never sends chat data until the user confirms generation.
 function getDirectorScene(turnCount = 2, castNames = []) {
   const context = globalThis.SillyTavern?.getContext?.();
@@ -308,8 +345,8 @@ export function askXaiVideoOptions(initialPrompt = '') {
       <label>Видеодвижок<select class="iig-xv-provider"><option value="grok">xAI · Grok Imagine Video</option><option value="veo">Google · Veo 3.1 (устаревшая Preview)</option><option value="omni">Google · Gemini Omni 1.1 Flash</option></select></label>
       <section class="iig-xv-director"><strong>🎬 ИИ-режиссёр · сценарий из ролевой</strong><small>Берёт последние сообщения только из открытого чата. Покажет сценарий для проверки; ничего не отправляет в Google до нажатия «Создать видео».</small><label>Контекст<select class="iig-xv-turns"><option value="2">Последние 2 сообщения</option><option value="4">Последние 4 сообщения</option><option value="6">Последние 6 сообщений</option></select></label><button type="button" class="iig-xv-from-chat">Взять сцену из ролевой</button><button type="button" class="iig-xv-restore">Вернуть описание картинки</button></section>
       <label class="iig-xv-prompt-wrap"><span class="iig-xv-prompt-title">✍️ Что должно произойти и что должно быть слышно</span><span class="iig-xv-prompt-help">Движение персонажей, камера, атмосфера, реплики и звуки — всё можно написать здесь.</span><textarea class="iig-xv-prompt" placeholder="Например: девушка медленно поднимает взгляд, волосы движутся от ветра, камера плавно приближается. Слышно тихий дождь…"></textarea></label>
-      <section class="iig-xv-director iig-xv-cast"><strong>👥 Персонажи и NPC · до 4 человек</strong><small>Имена необязательны. Без портретов видео тоже создаётся. Если добавляешь портреты, укажи соответствующие имена по порядку.</small><div class="iig-xv-grid"><label>Персонаж 1<input class="iig-xv-cast-name" placeholder="Например, Ханаби"></label><label>Персонаж 2<input class="iig-xv-cast-name" placeholder="Например, Бо"></label><label>NPC 3<input class="iig-xv-cast-name" placeholder="Имя NPC"></label><label>NPC 4<input class="iig-xv-cast-name" placeholder="Имя NPC"></label></div></section>
-      <section class="iig-xv-references" style="display:none"><strong>🖼️ Портреты — по одному на персонажа</strong><small>Введи имя и выбери портрет в соответствующей строке. Портрет запоминается в этом браузере и автоматически подставляется при следующей генерации.</small><div class="iig-xv-portrait-slots"></div><button type="button" class="iig-xv-clear-portraits">Очистить сохранённые портреты этих персонажей</button><small class="iig-xv-portrait-status"></small></section>
+      <section class="iig-xv-director iig-xv-cast"><strong>👥 Персонажи и NPC · до 4 человек</strong><small>Первые два участника берутся из активной персоны и карточки персонажа. NPC добавляй вручную. Для другого чата имена не переносятся.</small><div class="iig-xv-grid"><label>{{user}} · персона 1<input class="iig-xv-cast-name" placeholder="Например, Ханаби"></label><label>{{char}} · персонаж 2<input class="iig-xv-cast-name" placeholder="Например, Бо"></label><label>NPC 3<input class="iig-xv-cast-name" placeholder="Имя NPC"></label><label>NPC 4<input class="iig-xv-cast-name" placeholder="Имя NPC"></label></div></section>
+      <section class="iig-xv-references" style="display:none"><label class="iig-xv-audio"><input type="checkbox" class="iig-xv-auto-library" checked> Использовать портреты и описания из библиотеки {{user}} / {{char}} (если доступны)</label><strong>🖼️ Портреты — по одному на персонажа</strong><small>Ручные портреты имеют приоритет. Для NPC используй слоты 3 и 4. Аватары и описания из библиотеки подставляются только при включённой галочке.</small><div class="iig-xv-portrait-slots"></div><button type="button" class="iig-xv-clear-portraits">Очистить сохранённые портреты этих персонажей</button><small class="iig-xv-portrait-status"></small></section>
       <label>Длина эпизода<select class="iig-xv-episode"><option value="1">Один клип (обычно 8–10 секунд)</option><option value="2">Два клипа (примерно 16–20 секунд)</option><option value="3">Три клипа (примерно 24–30 секунд)</option></select></label>
       <small class="iig-xv-episode-note">Длинный эпизод = несколько отдельных платных генераций. Это не бесшовное продолжение: каждый фрагмент использует исходную картинку и тот же состав персонажей. Клипы сохраняются отдельно.</small>
       <div class="iig-xv-grid">
@@ -327,7 +364,7 @@ export function askXaiVideoOptions(initialPrompt = '') {
     const episode=q('.iig-xv-episode');
     const provider=q('.iig-xv-provider'), promptBox=q('.iig-xv-prompt'), model=q('.iig-xv-model'), duration=q('.iig-xv-duration'), resolution=q('.iig-xv-resolution'), audio=q('.iig-xv-audio-input'), cost=q('.iig-xv-cost'), refLabel=q('.iig-xv-references');
     let remembered={}; try { remembered=JSON.parse(localStorage.getItem('iig_video_options')||'{}'); } catch {}
-    const savedCast = (()=>{try{return JSON.parse(localStorage.getItem('iig_video_cast')||'[]')}catch{return []}})();
+    const savedCast = (()=>{try{return JSON.parse(localStorage.getItem(directorSetting('cast'))||'null') || currentCast()}catch{return currentCast()}})();
     const castInputs=[...wrap.querySelectorAll('.iig-xv-cast-name')]; castInputs.forEach((el,i)=>el.value=String(savedCast[i]||''));
     const getCast=()=>castInputs.map(el=>el.value.trim());
     const slotArea=q('.iig-xv-portrait-slots');
@@ -341,19 +378,19 @@ export function askXaiVideoOptions(initialPrompt = '') {
     }
     const refreshPortraitNotes=async()=>{
       for(let i=0;i<4;i++){
-        const name=normalizePortraitName(castInputs[i].value);
+        const name=directorScope()+'::'+normalizePortraitName(castInputs[i].value);
         if(!name || portraitInputs[i].input.files?.length)continue;
         try{const saved=await portraitStore('get',name);portraitInputs[i].note.textContent=saved?'✓ Портрет сохранён — будет использован':'Портрет не выбран (необязательно)'}catch{portraitInputs[i].note.textContent='Локальное хранилище недоступно'}
       }
     };
     castInputs.forEach(el=>el.addEventListener('change',refreshPortraitNotes));
     q('.iig-xv-clear-portraits').onclick=async()=>{
-      for(const name of getCast().map(normalizePortraitName).filter(Boolean))await portraitStore('delete',name);
+      for(const name of getCast().map(n=>directorScope()+'::'+normalizePortraitName(n)).filter(Boolean))await portraitStore('delete',name);
       q('.iig-xv-portrait-status').textContent='Сохранённые портреты указанных персонажей удалены.';
       refreshPortraitNotes();
     };
     refreshPortraitNotes();
-    const originalPrompt = String(initialPrompt || localStorage.getItem('iig_video_prompt') || '');
+    const originalPrompt = String(initialPrompt || localStorage.getItem(directorSetting('prompt')) || '');
     promptBox.value = originalPrompt;
     q('.iig-xv-from-chat').onclick = () => { try { promptBox.value = getDirectorScene(Number(q('.iig-xv-turns').value),getCast()); q('.iig-xv-status').textContent = 'Сценарий подготовлен. Проверь реплики и действия перед платной генерацией.'; } catch (e) { q('.iig-xv-status').textContent = e.message; } };
     q('.iig-xv-restore').onclick = () => { promptBox.value = originalPrompt; q('.iig-xv-status').textContent = 'Описание картинки восстановлено.'; };
@@ -409,7 +446,7 @@ export function askXaiVideoOptions(initialPrompt = '') {
       const referenceImages=[];
       if(provider.value==='omni'){
         for(let i=0;i<4;i++){
-          const name=normalizePortraitName(castNames[i]);
+          const name=directorScope()+'::'+normalizePortraitName(castNames[i]);
           const file=portraitInputs[i].input.files?.[0];
           if(file && (!['image/jpeg','image/png','image/webp'].includes(file.type) || file.size>12*1024*1024)){
             q('.iig-xv-status').textContent=`Портрет ${i+1}: только JPEG/PNG/WebP до 12 МБ.`;return;
@@ -420,10 +457,23 @@ export function askXaiVideoOptions(initialPrompt = '') {
           if(data)referenceImages.push({name:castNames[i]||`Character ${i+1}`,data});
         }
       }
-      const identityGuide=referenceImages.map((ref,i)=>`Reference portrait ${i+1} depicts ${ref.name}. Preserve the same face, hairstyle and distinctive traits; do not swap identities.`).join('\n');
+      if (provider.value==='omni' && q('.iig-xv-auto-library').checked) {
+        const library = await directorLibraryReferences();
+        for (let i=0;i<Math.min(2,library.length);i++) {
+          const item=library[i];
+          const hasManual = referenceImages.some(ref=>ref.name === castNames[i]);
+          if (hasManual || referenceImages.length >= 4) continue;
+          try {
+            if (!item.image) continue;
+            const data = await imageAsDataUrl(item.image);
+            referenceImages.push({name:item.name,data,description:item.description});
+          } catch(error) { console.warn('[Director Studio] Библиотечный портрет недоступен:',error); }
+        }
+      }
+      const identityGuide=referenceImages.map((ref,i)=>`Reference portrait ${i+1} depicts ${ref.name}. ${String(ref.description||'').slice(0,800)} Preserve the same face, hairstyle and distinctive traits; do not swap identities.`).join('\n');
       const finalPrompt=promptBox.value.trim() + (provider.value==='omni' && referenceImages.length && identityGuide ? '\n\nCHARACTER REFERENCE MAP:\n'+identityGuide : '');
       const value={episodeClips:Number(episode.value),provider:provider.value,prompt:finalPrompt,model:model.value,duration:Number(duration.value),resolution:resolution.value,generateAudio:audio.checked,aspectRatio:'9:16',referenceImages:referenceImages.map(r=>r.data)};
-      localStorage.setItem('iig_video_cast',JSON.stringify(castNames)); localStorage.setItem('iig_video_prompt',promptBox.value.trim()); localStorage.setItem('iig_video_options',JSON.stringify({...value, prompt:'', referenceImages: []})); finish(value);
+      localStorage.setItem(directorSetting('cast'),JSON.stringify(castNames)); localStorage.setItem(directorSetting('prompt'),promptBox.value.trim()); localStorage.setItem('iig_video_options',JSON.stringify({...value, prompt:'', referenceImages: []})); finish(value);
       } catch(error) {
         console.error('[Director Studio] Ошибка подготовки видео:',error);
         q('.iig-xv-status').textContent='Не удалось подготовить видео: '+(error?.message||String(error));
