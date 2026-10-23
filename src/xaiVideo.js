@@ -273,7 +273,7 @@ function normalizePortraitName(name){return String(name||'').trim().toLocaleLowe
 function directorScope() {
   const c = globalThis.SillyTavern?.getContext?.() || {};
   const chat = String(c.getCurrentChatId?.() || c.chatId || 'unsaved');
-  const char = String(c.characters?.[c.characterId]?.avatar || c.characterId || 'none');
+  const char = String(c.characters?.[c.characterId]?.avatar || c.characterId ?? 'none');
   const user = String(c.name1 || 'user');
   return encodeURIComponent(`${chat}|${char}|${user}`).slice(0,400);
 }
@@ -346,10 +346,9 @@ export function askXaiVideoOptions(initialPrompt = '') {
       <section class="iig-xv-director"><strong>🎬 ИИ-режиссёр · сценарий из ролевой</strong><small>Берёт последние сообщения только из открытого чата. Покажет сценарий для проверки; ничего не отправляет в Google до нажатия «Создать видео».</small><label>Контекст<select class="iig-xv-turns"><option value="2">Последние 2 сообщения</option><option value="4">Последние 4 сообщения</option><option value="6">Последние 6 сообщений</option></select></label><button type="button" class="iig-xv-from-chat">Взять сцену из ролевой</button><button type="button" class="iig-xv-restore">Вернуть описание картинки</button></section>
       <label class="iig-xv-prompt-wrap"><span class="iig-xv-prompt-title">✍️ Что должно произойти и что должно быть слышно</span><span class="iig-xv-prompt-help">Движение персонажей, камера, атмосфера, реплики и звуки — всё можно написать здесь.</span><textarea class="iig-xv-prompt" placeholder="Например: девушка медленно поднимает взгляд, волосы движутся от ветра, камера плавно приближается. Слышно тихий дождь…"></textarea></label>
       <section class="iig-xv-director iig-xv-cast"><strong>👥 Персонажи и NPC · до 4 человек</strong><small>Первые два участника берутся из активной персоны и карточки персонажа. NPC добавляй вручную. Для другого чата имена не переносятся.</small><div class="iig-xv-grid"><label>{{user}} · персона 1<input class="iig-xv-cast-name" placeholder="Например, Ханаби"></label><label>{{char}} · персонаж 2<input class="iig-xv-cast-name" placeholder="Например, Бо"></label><label>NPC 3<input class="iig-xv-cast-name" placeholder="Имя NPC"></label><label>NPC 4<input class="iig-xv-cast-name" placeholder="Имя NPC"></label></div></section>
-      <section class="iig-xv-references" style="display:none"><label class="iig-xv-audio"><input type="checkbox" class="iig-xv-auto-library" checked> Использовать портреты и описания из библиотеки {{user}} / {{char}} (если доступны)</label><strong>🖼️ Портреты — по одному на персонажа</strong><small>Ручные портреты имеют приоритет. Для NPC используй слоты 3 и 4. Аватары и описания из библиотеки подставляются только при включённой галочке.</small><div class="iig-xv-portrait-slots"></div><button type="button" class="iig-xv-clear-portraits">Очистить сохранённые портреты этих персонажей</button><small class="iig-xv-portrait-status"></small></section>
+      <section class="iig-xv-references" style="display:none"><label class="iig-xv-audio"><input type="checkbox" class="iig-xv-auto-library" checked> Использовать портреты и описания из библиотеки {{user}} / {{char}} (если доступны)</label><strong>🖼️ Портреты — по одному на персонажа</strong><small>Ручные портреты имеют приоритет. Для NPC используй слоты 3 и 4. Аватары и описания из библиотеки подставляются только при включённой галочке.</small><div class="iig-xv-portrait-slots"></div><button type="button" class="iig-xv-check-refs">🔎 Проверить референсы (бесплатно)</button><div class="iig-xv-ref-report" role="status" aria-live="polite" style="margin:8px 0;white-space:pre-wrap;font-size:12px"></div><button type="button" class="iig-xv-clear-portraits">Очистить сохранённые портреты этих персонажей</button><small class="iig-xv-portrait-status"></small></section>
       <label>Длина эпизода<select class="iig-xv-episode"><option value="1">Один клип (обычно 8–10 секунд)</option><option value="2">Два клипа (примерно 16–20 секунд)</option><option value="3">Три клипа (примерно 24–30 секунд)</option></select></label>
-      <small class="iig-xv-episode-note">Для длинной сцены напиши отдельное действие и реплику для каждой части. Следующая часть попробует продолжить последний кадр предыдущей. Если извлечь кадр не получится, будет использована исходная картинка. Каждый клип оплачивается отдельно.</small>
-      <section class="iig-xv-director iig-xv-storyboard" style="display:none"><strong>🎞️ Раскадровка длинной сцены</strong><small>Распредели события по клипам, чтобы модель не повторяла начало. Реплики пиши в нужном языке. Можно оставить поле пустым — тогда используется общее описание.</small><div class="iig-xv-parts"></div><label class="iig-xv-audio"><input type="checkbox" class="iig-xv-continuity" checked> Продолжать с последнего кадра предыдущего клипа (экспериментально)</label></section>
+      <small class="iig-xv-episode-note">Длинный эпизод = несколько отдельных платных генераций. Это не бесшовное продолжение: каждый фрагмент использует исходную картинку и тот же состав персонажей. Клипы сохраняются отдельно.</small>
       <div class="iig-xv-grid">
         <label>Модель<select class="iig-xv-model"></select></label>
         <label>Длительность<select class="iig-xv-duration"></select></label>
@@ -363,25 +362,6 @@ export function askXaiVideoOptions(initialPrompt = '') {
     wrap.showModal();
     const q = sel => wrap.querySelector(sel);
     const episode=q('.iig-xv-episode');
-    const storyboard=q('.iig-xv-storyboard');
-    const parts=q('.iig-xv-parts');
-    const renderStoryboard=()=>{
-      const count=Math.max(1,Math.min(3,Number(episode.value)||1));
-      storyboard.style.display=count>1?'block':'none';
-      const old=[...parts.querySelectorAll('textarea')].map(x=>x.value);
-      parts.replaceChildren();
-      for(let i=0;i<count;i++){
-        const label=document.createElement('label');
-        label.textContent=`Клип ${i+1} из ${count}`;
-        const area=document.createElement('textarea');
-        area.className='iig-xv-part-prompt';
-        area.placeholder=i===0?'Начало: действия и короткие реплики':i===count-1?'Завершение: действия и короткие реплики':'Продолжение: действия и короткие реплики';
-        area.value=old[i]||'';
-        label.append(area);parts.append(label);
-      }
-    };
-    episode.addEventListener('change',renderStoryboard);
-    renderStoryboard();
     const provider=q('.iig-xv-provider'), promptBox=q('.iig-xv-prompt'), model=q('.iig-xv-model'), duration=q('.iig-xv-duration'), resolution=q('.iig-xv-resolution'), audio=q('.iig-xv-audio-input'), cost=q('.iig-xv-cost'), refLabel=q('.iig-xv-references');
     let remembered={}; try { remembered=JSON.parse(localStorage.getItem('iig_video_options')||'{}'); } catch {}
     const savedCast = (()=>{try{return JSON.parse(localStorage.getItem(directorSetting('cast'))||'null') || currentCast()}catch{return currentCast()}})();
@@ -459,40 +439,70 @@ export function askXaiVideoOptions(initialPrompt = '') {
     provider.addEventListener('change',()=>{remembered={provider:provider.value};rebuild();}); model.addEventListener('change',update); duration.addEventListener('change',update); resolution.addEventListener('change',update); rebuild();
     const finish=value=>{try{wrap.close();}catch{} wrap.remove(); resolve(value);};
     q('.iig-xv-cancel').onclick=()=>finish(null); wrap.addEventListener('click',e=>{if(e.target===wrap)finish(null)}); wrap.addEventListener('cancel',e=>{e.preventDefault();finish(null)});
+    // One shared resolver for preview and paid generation: the preview reflects the actual image list.
+    async function collectDirectorReferences(castNames, inputs, useLibrary, isOmni) {
+      const refs=[];
+      if (!isOmni) return refs;
+      for(let i=0;i<4;i++) {
+        const file=inputs[i].input.files?.[0];
+        if(file && (!['image/jpeg','image/png','image/webp'].includes(file.type) || file.size>12*1024*1024)) throw new Error(`Портрет ${i+1}: JPEG/PNG/WebP до 12 МБ.`);
+        const key=directorScope()+'::'+normalizePortraitName(castNames[i]);
+        let data=null;
+        if(file) data=await portraitFileData(file);
+        else if(castNames[i]) data=await portraitStore('get',key);
+        if(data) refs.push({slot:i,name:castNames[i]||`Character ${i+1}`,data,source:file?'Ручной файл':'Сохранённый ручной портрет'});
+      }
+      if(useLibrary) {
+        const library=await directorLibraryReferences();
+        for(let i=0;i<Math.min(2,library.length);i++) {
+          const item=library[i];
+          if(refs.some(r=>r.slot===i) || refs.length>=4 || !item.image) continue;
+          try {
+            const data=await imageAsDataUrl(item.image);
+            refs.push({slot:i,name:item.name,data,description:item.description,source:'Библиотека SillyTavern'});
+          } catch(error) { console.warn('[Director Studio] Не удалось загрузить библиотечный портрет:',error); }
+        }
+      }
+      // Match image order to cast slots; this order is passed unchanged to the API.
+      refs.sort((a,b)=>a.slot-b.slot);
+      return refs;
+    }
+    q('.iig-xv-check-refs').onclick=async()=>{
+      const report=q('.iig-xv-ref-report');
+      report.replaceChildren();
+      if(provider.value!=='omni') { report.textContent='Эта проверка дополнительных изображений относится к Gemini Omni. Для выбранного движка они не отправляются.';return; }
+      report.textContent='Проверяю локальные файлы и библиотеку…';
+      try {
+        const refs=await collectDirectorReferences(getCast(),portraitInputs,q('.iig-xv-auto-library').checked,true);
+        report.replaceChildren();
+        const title=document.createElement('div');
+        title.textContent=`В запрос пойдут: основная ролевая картинка + ${refs.length} дополнительных портретов. Это предварительная проверка, запрос не отправлен.`;
+        report.append(title);
+        for(let i=0;i<4;i++) {
+          const ref=refs.find(r=>r.slot===i);
+          const line=document.createElement('div');
+          line.style.cssText='display:flex;align-items:center;gap:8px;margin-top:8px';
+          if(ref) {
+            const img=document.createElement('img');img.src=ref.data;img.alt='Референс '+(i+1);img.style.cssText='width:48px;height:60px;object-fit:cover;border-radius:6px';line.append(img);
+          }
+          const info=document.createElement('span');
+          info.textContent=`${i+1}. ${getCast()[i]||'NPC'}: ${ref?ref.source:'нет портрета'}${ref?.description?' · описание '+ref.description.length+' символов':' · описание не прикреплено'}`;
+          line.append(info);report.append(line);
+        }
+        const note=document.createElement('div');note.style.marginTop='8px';
+        note.textContent='Описание внешности включается в текст запроса только для референсов, у которых оно доступно. Наличие данных здесь не гарантирует, что модель сохранит внешность.';
+        report.append(note);
+      } catch(error) {report.textContent='Ошибка проверки: '+(error?.message||String(error));}
+    };
     q('.iig-xv-go').onclick=async()=>{
       try {
       if(Number(episode.value)>1 && !window.confirm(`Запустить ${episode.value} отдельные ПЛАТНЫЕ генерации? Каждый клип будет сохранён отдельно.`)) return;
       const castNames=getCast();
-      const referenceImages=[];
-      if(provider.value==='omni'){
-        for(let i=0;i<4;i++){
-          const name=directorScope()+'::'+normalizePortraitName(castNames[i]);
-          const file=portraitInputs[i].input.files?.[0];
-          if(file && (!['image/jpeg','image/png','image/webp'].includes(file.type) || file.size>12*1024*1024)){
-            q('.iig-xv-status').textContent=`Портрет ${i+1}: только JPEG/PNG/WebP до 12 МБ.`;return;
-          }
-          let data=null;
-          if(file){data=await portraitFileData(file);if(name)await portraitStore('put',name,data)}
-          else if(name)data=await portraitStore('get',name);
-          if(data)referenceImages.push({name:castNames[i]||`Character ${i+1}`,data});
-        }
-      }
-      if (provider.value==='omni' && q('.iig-xv-auto-library').checked) {
-        const library = await directorLibraryReferences();
-        for (let i=0;i<Math.min(2,library.length);i++) {
-          const item=library[i];
-          const hasManual = referenceImages.some(ref=>ref.name === castNames[i]);
-          if (hasManual || referenceImages.length >= 4) continue;
-          try {
-            if (!item.image) continue;
-            const data = await imageAsDataUrl(item.image);
-            referenceImages.push({name:item.name,data,description:item.description});
-          } catch(error) { console.warn('[Director Studio] Библиотечный портрет недоступен:',error); }
-        }
-      }
+      const referenceImages=await collectDirectorReferences(castNames, portraitInputs, provider.value==='omni' && q('.iig-xv-auto-library').checked, provider.value==='omni');
+      for(let i=0;i<4;i++) { const file=portraitInputs[i].input.files?.[0]; const key=directorScope()+'::'+normalizePortraitName(castNames[i]); if(file && castNames[i]) await portraitStore('put',key,await portraitFileData(file)); }
       const identityGuide=referenceImages.map((ref,i)=>`Reference portrait ${i+1} depicts ${ref.name}. ${String(ref.description||'').slice(0,800)} Preserve the same face, hairstyle and distinctive traits; do not swap identities.`).join('\n');
       const finalPrompt=promptBox.value.trim() + (provider.value==='omni' && referenceImages.length && identityGuide ? '\n\nCHARACTER REFERENCE MAP:\n'+identityGuide : '');
-      const value={episodeClips:Number(episode.value),partPrompts:[...parts.querySelectorAll('textarea')].map(x=>x.value.trim()),continueFromLastFrame:q('.iig-xv-continuity').checked,provider:provider.value,prompt:finalPrompt,model:model.value,duration:Number(duration.value),resolution:resolution.value,generateAudio:audio.checked,aspectRatio:'9:16',referenceImages:referenceImages.map(r=>r.data)};
+      const value={episodeClips:Number(episode.value),provider:provider.value,prompt:finalPrompt,model:model.value,duration:Number(duration.value),resolution:resolution.value,generateAudio:audio.checked,aspectRatio:'9:16',referenceImages:referenceImages.map(r=>r.data)};
       localStorage.setItem(directorSetting('cast'),JSON.stringify(castNames)); localStorage.setItem(directorSetting('prompt'),promptBox.value.trim()); localStorage.setItem('iig_video_options',JSON.stringify({...value, prompt:'', referenceImages: []})); finish(value);
       } catch(error) {
         console.error('[Director Studio] Ошибка подготовки видео:',error);
@@ -501,36 +511,6 @@ export function askXaiVideoOptions(initialPrompt = '') {
     };
   });
 }
-// Extract a real last frame locally in the browser; no additional paid API call.
-// The blob URL is generated by the provider in this same page.
-async function videoLastFrame(videoUrl) {
-  return await new Promise((resolve,reject)=>{
-    const video=document.createElement('video');
-    video.preload='auto'; video.muted=true; video.playsInline=true;
-    let done=false;
-    const timer=setTimeout(()=>fail(new Error('Тайм-аут извлечения кадра')),18000);
-    const cleanup=()=>{clearTimeout(timer);video.removeAttribute('src');video.load();};
-    const fail=e=>{if(done)return;done=true;cleanup();reject(e);};
-    video.onerror=()=>fail(new Error('Не удалось открыть MP4 для продолжения'));
-    video.onloadedmetadata=()=>{
-      if(!Number.isFinite(video.duration)||video.duration<=0){fail(new Error('Нет длительности MP4'));return;}
-      video.currentTime=Math.max(0,video.duration-0.12);
-    };
-    video.onseeked=()=>{
-      if(done)return;
-      try{
-        const canvas=document.createElement('canvas');
-        canvas.width=video.videoWidth;canvas.height=video.videoHeight;
-        if(!canvas.width||!canvas.height)throw new Error('Кадр пуст');
-        canvas.getContext('2d').drawImage(video,0,0);
-        const frame=canvas.toDataURL('image/jpeg',0.88);
-        done=true;cleanup();resolve(frame);
-      }catch(e){fail(e)}
-    };
-    video.src=videoUrl;
-  });
-}
-
 export async function animateImageInteractive(imageSrc, onStatus = () => {}, initialPrompt = '') {
   const options = await askXaiVideoOptions(initialPrompt);
   if (!options) return null;
@@ -538,24 +518,18 @@ export async function animateImageInteractive(imageSrc, onStatus = () => {}, ini
   const count = Math.max(1, Math.min(3, Number(options.episodeClips) || 1));
   if (count === 1) return generate(imageSrc, options, onStatus);
   const clips = [];
-  let source = imageSrc;
+  // No hidden extra calls: exactly count sequential, independently billed clips.
   for (let i = 0; i < count; i++) {
-    const part = String(options.partPrompts?.[i] || '').trim();
-    const direction = `\n\nSTORYBOARD CLIP ${i + 1}/${count}. ${part ? `THIS CLIP ONLY: ${part}` : i === 0 ? 'Show the opening beat of the scene.' : i === count-1 ? 'Show the final beat of the scene.' : 'Show the middle beat of the scene.'} Do not repeat completed dialogue or actions. Preserve characters, outfits and setting. No subtitles or text overlays.`;
+    const direction = `\n\nEPISODE PART ${i + 1} OF ${count}: ${i === 0 ? 'Show the beginning of the action.' : i === count - 1 ? 'Show the closing beat of the same scene.' : 'Show the middle beat of the same scene.'} Keep the same cast, wardrobe and location. Do not repeat the same actions or dialogue from other parts. No new characters.`;
     try {
-      onStatus(`Клип ${i + 1}/${count}: платная генерация…`);
-      const clip=await generate(source,{...options,prompt:options.prompt+direction},onStatus);
-      clips.push(clip);
-      if(i<count-1 && options.continueFromLastFrame){
-        try { onStatus(`Клип ${i+1}: извлекаю последний кадр…`);source=await videoLastFrame(clip.url); }
-        catch(err){ iigLog('WARN','Last frame unavailable; reusing original scene',err);source=imageSrc;onStatus('Последний кадр недоступен — следующая часть начнётся с исходной картинки.'); }
-      }
+      onStatus(`Эпизод ${i + 1}/${count}: генерация…`);
+      clips.push(await generate(imageSrc, {...options, prompt: options.prompt + direction}, onStatus));
     } catch (error) {
-      if (clips.length) return {...clips[0], clips, incomplete:true, failure:`Часть ${i+1}: ${error.message}`};
+      if (clips.length) return {...clips[0], clips, incomplete: true, failure: `Часть ${i + 1}: ${error.message}`};
       throw error;
     }
   }
-  return {...clips[0],clips};
+  return {...clips[0], clips};
 }
 
 
