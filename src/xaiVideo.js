@@ -185,6 +185,23 @@ async function generateVeoVideoFromImage(imageSrc, options, onStatus = () => {})
   throw new Error('Google Veo не завершил генерацию за 15 минут.');
 }
 
+// Explain failed background tasks without exposing prompts, image data or API keys.
+function omniFailureDetails(result) {
+  const error = result?.error;
+  const candidates = [
+    typeof error === 'string' ? error : null,
+    error?.message, error?.status, error?.code,
+    result?.failure_reason, result?.finish_reason,
+    result?.message,
+    ...(Array.isArray(result?.steps) ? result.steps.flatMap(step => [
+      step?.error?.message, step?.error?.status, step?.status === 'failed' ? step?.name : null,
+    ]) : []),
+  ];
+  const details = [...new Set(candidates.filter(x => ['string', 'number'].includes(typeof x))
+    .map(x => String(x).slice(0, 400)).filter(Boolean))].join(' | ');
+  return `Omni: ${String(result?.status || 'failed')}${details ? ' — ' + details : ' (сервер не сообщил причину)'}`;
+}
+
 // Gemini Omni uses Interactions API, not Veo predictLongRunning.
 async function generateOmniVideoFromImage(imageSrc, options, onStatus = () => {}) {
   const { apiKey } = geminiConfig();
@@ -220,7 +237,7 @@ async function generateOmniVideoFromImage(imageSrc, options, onStatus = () => {}
   const requestId = result.id;
   const started = Date.now();
   while (result.status !== 'completed' && Date.now() - started < 15 * 60 * 1000) {
-    if (['failed', 'cancelled', 'expired'].includes(result.status)) throw new Error(result.error?.message || `Omni: ${result.status}`);
+    if (['failed', 'cancelled', 'expired'].includes(result.status)) throw new Error(omniFailureDetails(result));
     if (!requestId) throw new Error('Gemini Omni не вернул идентификатор генерации.');
     await new Promise(r => setTimeout(r, 10000));
     onStatus(`Gemini Omni создаёт видео… ${Math.round((Date.now() - started) / 1000)}с`);
