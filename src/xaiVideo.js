@@ -185,23 +185,6 @@ async function generateVeoVideoFromImage(imageSrc, options, onStatus = () => {})
   throw new Error('Google Veo не завершил генерацию за 15 минут.');
 }
 
-// Explain failed background tasks without exposing prompts, image data or API keys.
-function omniFailureDetails(result) {
-  const error = result?.error;
-  const candidates = [
-    typeof error === 'string' ? error : null,
-    error?.message, error?.status, error?.code,
-    result?.failure_reason, result?.finish_reason,
-    result?.message,
-    ...(Array.isArray(result?.steps) ? result.steps.flatMap(step => [
-      step?.error?.message, step?.error?.status, step?.status === 'failed' ? step?.name : null,
-    ]) : []),
-  ];
-  const details = [...new Set(candidates.filter(x => ['string', 'number'].includes(typeof x))
-    .map(x => String(x).slice(0, 400)).filter(Boolean))].join(' | ');
-  return `Omni: ${String(result?.status || 'failed')}${details ? ' — ' + details : ' (сервер не сообщил причину)'}`;
-}
-
 // Gemini Omni uses Interactions API, not Veo predictLongRunning.
 async function generateOmniVideoFromImage(imageSrc, options, onStatus = () => {}) {
   const { apiKey } = geminiConfig();
@@ -237,7 +220,7 @@ async function generateOmniVideoFromImage(imageSrc, options, onStatus = () => {}
   const requestId = result.id;
   const started = Date.now();
   while (result.status !== 'completed' && Date.now() - started < 15 * 60 * 1000) {
-    if (['failed', 'cancelled', 'expired'].includes(result.status)) throw new Error(omniFailureDetails(result));
+    if (['failed', 'cancelled', 'expired'].includes(result.status)) throw new Error(result.error?.message || `Omni: ${result.status}`);
     if (!requestId) throw new Error('Gemini Omni не вернул идентификатор генерации.');
     await new Promise(r => setTimeout(r, 10000));
     onStatus(`Gemini Omni создаёт видео… ${Math.round((Date.now() - started) / 1000)}с`);
@@ -363,7 +346,7 @@ export function askXaiVideoOptions(initialPrompt = '') {
       <section class="iig-xv-director"><strong>🎬 ИИ-режиссёр · сценарий из ролевой</strong><small>Берёт последние сообщения только из открытого чата. Покажет сценарий для проверки; ничего не отправляет в Google до нажатия «Создать видео».</small><label>Контекст<select class="iig-xv-turns"><option value="2">Последние 2 сообщения</option><option value="4">Последние 4 сообщения</option><option value="6">Последние 6 сообщений</option></select></label><button type="button" class="iig-xv-from-chat">Взять сцену из ролевой</button><button type="button" class="iig-xv-restore">Вернуть описание картинки</button></section>
       <label class="iig-xv-prompt-wrap"><span class="iig-xv-prompt-title">✍️ Что должно произойти и что должно быть слышно</span><span class="iig-xv-prompt-help">Движение персонажей, камера, атмосфера, реплики и звуки — всё можно написать здесь.</span><textarea class="iig-xv-prompt" placeholder="Например: девушка медленно поднимает взгляд, волосы движутся от ветра, камера плавно приближается. Слышно тихий дождь…"></textarea></label>
       <section class="iig-xv-director iig-xv-cast"><strong>👥 Персонажи и NPC · до 4 человек</strong><small>Первые два участника берутся из активной персоны и карточки персонажа. NPC добавляй вручную. Для другого чата имена не переносятся.</small><div class="iig-xv-grid"><label>{{user}} · персона 1<input class="iig-xv-cast-name" placeholder="Например, Ханаби"></label><label>{{char}} · персонаж 2<input class="iig-xv-cast-name" placeholder="Например, Бо"></label><label>NPC 3<input class="iig-xv-cast-name" placeholder="Имя NPC"></label><label>NPC 4<input class="iig-xv-cast-name" placeholder="Имя NPC"></label></div></section>
-      <section class="iig-xv-references" style="display:none"><label class="iig-xv-audio"><input type="checkbox" class="iig-xv-auto-library" checked> Использовать портреты и описания из библиотеки {{user}} / {{char}} (если доступны)</label><strong>🖼️ Портреты — по одному на персонажа</strong><small>Ручные портреты имеют приоритет. Для NPC используй слоты 3 и 4. Аватары и описания из библиотеки подставляются только при включённой галочке.</small><div class="iig-xv-portrait-slots"></div><button type="button" class="iig-xv-check-refs">🔎 Проверить референсы (бесплатно)</button><div class="iig-xv-ref-report" role="status" aria-live="polite" style="margin:8px 0;white-space:pre-wrap;font-size:12px"></div><button type="button" class="iig-xv-clear-portraits">Очистить сохранённые портреты этих персонажей</button><small class="iig-xv-portrait-status"></small></section>
+      <section class="iig-xv-references" style="display:none"><label>Режим референсов<select class="iig-xv-ref-mode"><option value="auto">Автоматический · библиотека SillyTavern</option><option value="manual">Классический · только ручные портреты</option></select></label><small class="iig-xv-ref-mode-note">В автоматическом режиме библиотека дополняет ручные портреты. В классическом отправляются только выбранные или сохранённые вручную портреты этого чата.</small><label class="iig-xv-audio iig-xv-library-toggle"><input type="checkbox" class="iig-xv-auto-library" checked> Использовать портреты и описания из библиотеки {{user}} / {{char}} (если доступны)</label><strong>🖼️ Портреты — по одному на персонажа</strong><small>Ручные портреты имеют приоритет. Для NPC используй слоты 3 и 4. Аватары и описания из библиотеки подставляются только при включённой галочке.</small><div class="iig-xv-portrait-slots"></div><button type="button" class="iig-xv-check-refs">🔎 Проверить референсы (бесплатно)</button><div class="iig-xv-ref-report" role="status" aria-live="polite" style="margin:8px 0;white-space:pre-wrap;font-size:12px"></div><button type="button" class="iig-xv-clear-portraits">Очистить сохранённые портреты этих персонажей</button><small class="iig-xv-portrait-status"></small></section>
       <label>Длина эпизода<select class="iig-xv-episode"><option value="1">Один клип (обычно 8–10 секунд)</option><option value="2">Два клипа (примерно 16–20 секунд)</option><option value="3">Три клипа (примерно 24–30 секунд)</option></select></label>
       <small class="iig-xv-episode-note">Длинный эпизод = несколько отдельных платных генераций. Это не бесшовное продолжение: каждый фрагмент использует исходную картинку и тот же состав персонажей. Клипы сохраняются отдельно.</small>
       <div class="iig-xv-grid">
@@ -384,7 +367,14 @@ export function askXaiVideoOptions(initialPrompt = '') {
     const savedCast = (()=>{try{return JSON.parse(localStorage.getItem(directorSetting('cast'))||'null') || currentCast()}catch{return currentCast()}})();
     const castInputs=[...wrap.querySelectorAll('.iig-xv-cast-name')]; castInputs.forEach((el,i)=>el.value=String(savedCast[i]||''));
     const getCast=()=>castInputs.map(el=>el.value.trim());
-    const slotArea=q('.iig-xv-portrait-slots');
+    const refMode=q('.iig-xv-ref-mode');
+     const libraryToggle=q('.iig-xv-library-toggle');
+     const modeKey=directorSetting('reference_mode');
+     refMode.value=localStorage.getItem(modeKey)==='manual'?'manual':'auto';
+     const syncRefMode=()=>{libraryToggle.style.display=refMode.value==='auto'?'flex':'none';};
+     refMode.addEventListener('change',()=>{localStorage.setItem(modeKey,refMode.value);syncRefMode();q('.iig-xv-ref-report').textContent='Режим изменён. Нажми «Проверить референсы», чтобы увидеть фактический список.';});
+     syncRefMode();
+     const slotArea=q('.iig-xv-portrait-slots');
     const portraitInputs=[];
     for(let i=0;i<4;i++){
       const label=document.createElement('label');label.textContent=`Портрет ${i+1}`;
@@ -490,11 +480,12 @@ export function askXaiVideoOptions(initialPrompt = '') {
       if(provider.value!=='omni') { report.textContent='Эта проверка дополнительных изображений относится к Gemini Omni. Для выбранного движка они не отправляются.';return; }
       report.textContent='Проверяю локальные файлы и библиотеку…';
       try {
-        const refs=await collectDirectorReferences(getCast(),portraitInputs,q('.iig-xv-auto-library').checked,true);
+        const refs=await collectDirectorReferences(getCast(),portraitInputs,(refMode.value==='auto' && q('.iig-xv-auto-library').checked),true);
         report.replaceChildren();
         const title=document.createElement('div');
         title.textContent=`В запрос пойдут: основная ролевая картинка + ${refs.length} дополнительных портретов. Это предварительная проверка, запрос не отправлен.`;
         report.append(title);
+         const modeLine=document.createElement('div');modeLine.textContent='Режим: '+(refMode.value==='manual'?'классический (без библиотеки и описаний)':'автоматический');report.append(modeLine);
         for(let i=0;i<4;i++) {
           const ref=refs.find(r=>r.slot===i);
           const line=document.createElement('div');
@@ -515,7 +506,7 @@ export function askXaiVideoOptions(initialPrompt = '') {
       try {
       if(Number(episode.value)>1 && !window.confirm(`Запустить ${episode.value} отдельные ПЛАТНЫЕ генерации? Каждый клип будет сохранён отдельно.`)) return;
       const castNames=getCast();
-      const referenceImages=await collectDirectorReferences(castNames, portraitInputs, provider.value==='omni' && q('.iig-xv-auto-library').checked, provider.value==='omni');
+      const referenceImages=await collectDirectorReferences(castNames, portraitInputs, provider.value==='omni' && refMode.value==='auto' && q('.iig-xv-auto-library').checked, provider.value==='omni');
       for(let i=0;i<4;i++) { const file=portraitInputs[i].input.files?.[0]; const key=directorScope()+'::'+normalizePortraitName(castNames[i]); if(file && castNames[i]) await portraitStore('put',key,await portraitFileData(file)); }
       const identityGuide=referenceImages.map((ref,i)=>`Reference portrait ${i+1} depicts ${ref.name}. ${String(ref.description||'').slice(0,800)} Preserve the same face, hairstyle and distinctive traits; do not swap identities.`).join('\n');
       const finalPrompt=promptBox.value.trim() + (provider.value==='omni' && referenceImages.length && identityGuide ? '\n\nCHARACTER REFERENCE MAP:\n'+identityGuide : '');
