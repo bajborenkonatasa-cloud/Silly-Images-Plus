@@ -1,3 +1,4 @@
+import { observeLibraryImages } from './libraryImages.js';
 import { getSettings, saveSettings } from './settings.js';
 import {
     addCharacterLibraryAppearanceItem,
@@ -38,11 +39,10 @@ let refreshTimer = null;
 let searchRenderTimer = null;
 let lastContextSignature = '';
 let libraryRendered = false;
-let libraryImageObserver = null;
+let generationsRefreshController = null;
 const pendingContextSync = { character: false, user: false };
 
 const MAX_RENDERED_ENTITIES = 80;
-const LIBRARY_IMAGE_ROOT_MARGIN = '320px 0px';
 
 function emptyLibraryEntry() {
     return {
@@ -153,32 +153,6 @@ async function getUserEntities(settings = getSettings()) {
 
 async function getEntities(kind = selectedKind, settings = getSettings()) {
     return kind === 'user' ? await getUserEntities(settings) : getCharacterEntities(settings);
-}
-
-function loadLibraryImage(image) {
-    const src = String(image?.getAttribute('data-iig-library-src') || '').trim();
-    if (!src) return;
-    image.src = src;
-    image.removeAttribute('data-iig-library-src');
-}
-
-function observeLibraryImages() {
-    const images = Array.from(document.querySelectorAll('.iig-character-library img[data-iig-library-src]'));
-    if (typeof IntersectionObserver !== 'function') {
-        images.forEach(loadLibraryImage);
-        return;
-    }
-    if (!libraryImageObserver) {
-        libraryImageObserver = new IntersectionObserver((entries) => {
-            entries.forEach((entry) => {
-                if (!entry.isIntersecting) return;
-                loadLibraryImage(entry.target);
-                libraryImageObserver?.unobserve(entry.target);
-            });
-        }, { rootMargin: LIBRARY_IMAGE_ROOT_MARGIN });
-    }
-    libraryImageObserver.disconnect();
-    images.forEach((image) => libraryImageObserver.observe(image));
 }
 
 function buildAvatarHtml(src, fallbackIcon = 'fa-user') {
@@ -473,6 +447,9 @@ async function refreshCharacterGenerations(state, button, settings) {
         toastr.warning(t`Character image folder is unavailable`, t`Image Generation`);
         return;
     }
+    generationsRefreshController?.abort();
+    const controller = new AbortController();
+    generationsRefreshController = controller;
     button.disabled = true;
     button.querySelector('i')?.classList.add('fa-spin');
     try {
@@ -484,14 +461,22 @@ async function refreshCharacterGenerations(state, button, settings) {
                 .flatMap((message) => extractGeneratedImageUrlsFromText(getMessageRenderText(message, settings)))
                 .filter((path) => /\.(?:png|jpe?g|webp|gif)(?:[?#].*)?$/i.test(path)))]
             : [];
-        const contextChatPaths = (await Promise.all(contextChatCandidates.map(async (path) => {
-            try {
-                const imageResponse = await fetch(path, { method: 'HEAD' });
-                return imageResponse.ok ? path : '';
-            } catch (_error) {
-                return '';
+        // Bound concurrent HEAD requests to avoid flooding mobile connections.
+        const contextChatPaths = [];
+        let nextCandidate = 0;
+        const workers = Array.from({ length: Math.min(4, contextChatCandidates.length) }, async () => {
+            while (nextCandidate < contextChatCandidates.length && !controller.signal.aborted) {
+                const path = contextChatCandidates[nextCandidate++];
+                try {
+                    const response = await fetch(path, { method: 'HEAD', signal: controller.signal });
+                    if (response.ok) contextChatPaths.push(path);
+                } catch (error) {
+                    if (controller.signal.aborted) return;
+                }
             }
-        }))).filter(Boolean);
+        });
+        await Promise.all(workers);
+        if (controller.signal.aborted) return;
         const generations = syncCharacterGenerationHistory(
             state.key,
             [...contextChatPaths, ...folderImagePaths],
@@ -500,9 +485,11 @@ async function refreshCharacterGenerations(state, button, settings) {
         await renderEditor(settings);
         toastr.success(t`Generations found: ${generations.length}`, t`Image Generation`);
     } catch (error) {
+        if (controller.signal.aborted) return;
         console.error('[IIG] Failed to refresh character generations:', error);
         toastr.error(t`Failed to refresh generations: ${error.message || error}`, t`Image Generation`);
     } finally {
+        if (generationsRefreshController === controller) generationsRefreshController = null;
         button.disabled = false;
         button.querySelector('i')?.classList.remove('fa-spin');
     }
